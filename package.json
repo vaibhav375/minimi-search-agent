@@ -1,0 +1,30 @@
+{
+  "name": "minimi-search-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A fast, cited chat agent with one tool (web search) and date-aware memory of past conversations.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "predev": "node scripts/check-node.mjs",
+    "dev": "node --disable-warning=ExperimentalWarning --watch --import tsx src/server.ts",
+    "start": "node --disable-warning=ExperimentalWarning --import tsx src/server.ts",
+    "seed": "node --disable-warning=ExperimentalWarning --import tsx scripts/seed.ts",
+    "test": "node --disable-warning=ExperimentalWarning --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "chrono-node": "^2.10.3",
+    "dompurify": "^3.4.17",
+    "marked": "^18.2.0",
+    "openai": "^7.55.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
