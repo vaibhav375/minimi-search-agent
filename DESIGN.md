@@ -38,7 +38,10 @@ Each message runs one turn (`src/agent.ts`):
   visible status. Garbled tool calls, which Groq rejects mid-stream, are retried, then sent to the
   fallback.
 - **Small stack.** The OpenAI SDK against any compatible host, `node:http` with Server-Sent Events,
-  built-in `node:sqlite` (no native build), one HTML file.
+  built-in `node:sqlite` (no native build), one HTML file (GSAP and Lenis for motion).
+- **Safe to put online.** Each browser's history is filed under its own random id, a per-address
+  daily cap protects the free quotas, and visitors can load a sample history so the memory
+  questions work on a fresh public instance.
 
 ## Considered and rejected
 
@@ -56,7 +59,8 @@ Each message runs one turn (`src/agent.ts`):
 
 Recall needs a date or a cue phrase. Citations are prompt-based, so a wrong-but-existing source
 number gets through. Only the last ten messages of a chat are sent. Failed turns aren't saved.
-Quick-fire questions can wait up to a minute on the free tier.
+Quick-fire questions can wait up to a minute on the free tier. Visitor ids separate histories but
+are not logins.
 
 ## With another week
 

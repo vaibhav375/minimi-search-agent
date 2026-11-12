@@ -43,7 +43,8 @@ const SCHEMA = `
 CREATE TABLE IF NOT EXISTS conversations (
   id          INTEGER PRIMARY KEY,
   title       TEXT NOT NULL,
-  created_at  TEXT NOT NULL
+  created_at  TEXT NOT NULL,
+  visitor     TEXT NOT NULL DEFAULT 'local'
 );
 CREATE TABLE IF NOT EXISTS messages (
   id              INTEGER PRIMARY KEY,
@@ -78,21 +79,33 @@ export function localDate(at: Date, timezone: string): string {
 
 export class Store {
   private db: DatabaseSync;
+  private visitor: string; // whose conversations this view reads and writes
 
-  constructor(path = "data/chat.db") {
+  constructor(path = "data/chat.db", visitor = "local") {
+    this.visitor = visitor;
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
     this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
     this.db.exec(SCHEMA);
+    // Databases created before visitors existed get the column added in place.
+    const columns = this.db.prepare("PRAGMA table_info(conversations)").all() as { name: string }[];
+    if (!columns.some((c) => c.name === "visitor")) this.db.exec("ALTER TABLE conversations ADD COLUMN visitor TEXT NOT NULL DEFAULT 'local'");
+    this.db.exec("CREATE INDEX IF NOT EXISTS conversations_by_visitor ON conversations(visitor)");
+  }
+
+  // The same database, limited to one visitor's conversations. On a public deployment each browser
+  // gets its own id, so nobody can list, open or recall anyone else's history.
+  scoped(visitor: string): Store {
+    return Object.assign(Object.create(Store.prototype) as Store, { db: this.db, visitor });
   }
 
   createConversation(title: string, at: Date): number {
-    const r = this.db.prepare("INSERT INTO conversations (title, created_at) VALUES (?, ?)").run(title, at.toISOString());
+    const r = this.db.prepare("INSERT INTO conversations (title, created_at, visitor) VALUES (?, ?, ?)").run(title, at.toISOString(), this.visitor);
     return Number(r.lastInsertRowid);
   }
 
   conversationExists(id: number): boolean {
-    return !!this.db.prepare("SELECT 1 FROM conversations WHERE id = ?").get(id);
+    return !!this.db.prepare("SELECT 1 FROM conversations WHERE id = ? AND visitor = ?").get(id, this.visitor);
   }
 
   addMessage(m: { conversationId: number; role: Role; content: string; at: Date; timezone: string }): number {
@@ -113,9 +126,10 @@ export class Store {
       .prepare(
         `SELECT c.id, c.title, c.created_at AS createdAt, COALESCE(MAX(m.created_at), c.created_at) AS lastAt
          FROM conversations c JOIN messages m ON m.conversation_id = c.id
+         WHERE c.visitor = ?
          GROUP BY c.id ORDER BY lastAt DESC`,
       )
-      .all() as unknown as ConversationSummary[];
+      .all(this.visitor) as unknown as ConversationSummary[];
   }
 
   conversationTitle(id: number): string {
@@ -129,10 +143,12 @@ export class Store {
         `SELECT * FROM (
            SELECT id, conversation_id AS conversationId, role, content, created_at AS createdAt,
                   local_date AS localDate, timezone
-           FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT ?
+           FROM messages
+           WHERE conversation_id = ? AND conversation_id IN (SELECT id FROM conversations WHERE visitor = ?)
+           ORDER BY id DESC LIMIT ?
          ) ORDER BY id`,
       )
-      .all(conversationId, limit) as unknown as Omit<StoredMessage, "sources">[];
+      .all(conversationId, this.visitor, limit) as unknown as Omit<StoredMessage, "sources">[];
     const sourcesOf = this.db.prepare("SELECT n, url, title, published, query FROM sources WHERE message_id = ? ORDER BY n");
     return rows.map((r) => ({ ...r, sources: sourcesOf.all(r.id) as unknown as Source[] }));
   }
@@ -144,10 +160,10 @@ export class Store {
       .prepare(
         `SELECT c.id, c.title, GROUP_CONCAT(DISTINCT m.local_date) AS dates
          FROM messages m JOIN conversations c ON c.id = m.conversation_id
-         WHERE m.local_date IN (${dates.map(() => "?").join(",")}) AND c.id != ?
+         WHERE m.local_date IN (${dates.map(() => "?").join(",")}) AND c.id != ? AND c.visitor = ?
          GROUP BY c.id ORDER BY MIN(m.id)`,
       )
-      .all(...dates, excludeId ?? -1) as { id: number; title: string; dates: string }[];
+      .all(...dates, excludeId ?? -1, this.visitor) as { id: number; title: string; dates: string }[];
     return rows.map((r) => ({ id: r.id, title: r.title, dates: r.dates.split(",").sort() }));
   }
 
@@ -160,10 +176,10 @@ export class Store {
         `WITH hit AS MATERIALIZED (SELECT rowid, bm25(messages_fts) AS score FROM messages_fts WHERE messages_fts MATCH ?)
          SELECT c.id, c.title, GROUP_CONCAT(DISTINCT m.local_date) AS dates, MIN(hit.score) AS score
          FROM hit JOIN messages m ON m.id = hit.rowid JOIN conversations c ON c.id = m.conversation_id
-         WHERE c.id != ?
+         WHERE c.id != ? AND c.visitor = ?
          GROUP BY c.id ORDER BY score LIMIT ?`,
       )
-      .all(match, excludeId ?? -1, limit) as { id: number; title: string; dates: string }[];
+      .all(match, excludeId ?? -1, this.visitor, limit) as { id: number; title: string; dates: string }[];
     return rows.map((r) => ({ id: r.id, title: r.title, dates: r.dates.split(",").sort() }));
   }
 
@@ -191,11 +207,11 @@ export class Store {
       .prepare(
         `SELECT m.local_date AS date, json_group_array(DISTINCT c.title) AS titles
          FROM messages m JOIN conversations c ON c.id = m.conversation_id
-         WHERE c.id != ?
+         WHERE c.id != ? AND c.visitor = ?
          GROUP BY m.local_date
          ORDER BY ABS(julianday(m.local_date) - julianday(?)) LIMIT ?`,
       )
-      .all(excludeId ?? -1, date, limit) as { date: string; titles: string }[];
+      .all(excludeId ?? -1, this.visitor, date, limit) as { date: string; titles: string }[];
     return rows.map((r) => ({ date: r.date, titles: JSON.parse(r.titles) as string[] }));
   }
 }

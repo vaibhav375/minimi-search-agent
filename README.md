@@ -1,4 +1,4 @@
-# Search chat agent
+# Recall
 
 A chat agent with one tool, web search. It answers fast, cites every fact, and remembers what you
 talked about and when, so it can answer "What did I ask you on 3 November? Is your answer still
@@ -26,8 +26,11 @@ Keys (both free, no card):
 
 ## Try the memory questions on a fresh install
 
-The sample questions refer to earlier conversations, which a fresh install doesn't have. This seeds
-three, dated last Monday, last Tuesday and 3 November:
+The sample questions refer to earlier conversations, which a fresh install doesn't have. The start
+page has a **Load sample history** button that adds three, dated last Monday, last Tuesday and
+3 November. They come from `demo/history.json`, which holds three real agent runs.
+
+To generate your own instead, with fresh searches:
 
 ```bash
 npm run seed
@@ -44,10 +47,24 @@ Then ask, for example:
 - "Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?"
 - "What did I ask you on 3 November? Is your answer still correct today?"
 
+## Deploy
+
+The repo includes a [Render](https://render.com) blueprint (`render.yaml`) for its free plan:
+
+1. Open https://render.com/deploy?repo=https://github.com/vaibhav375/minimi-search-agent
+2. Sign in with GitHub and enter `LLM_API_KEY` and `EXA_API_KEY` when asked.
+
+Any Node host works: run `npm install`, then `npm start` with `HOST=0.0.0.0` and the two keys set.
+
+On a public deployment each browser gets a random id and sees only its own history (it is not a
+login: anyone with the id could read that history). Each address is limited to 60 questions a day so
+a public demo cannot drain the free API quotas. Render's free plan wipes the database when the
+service restarts, so history there is temporary.
+
 ## Tests
 
 ```bash
-npm test          # 14 tests: date resolution, recall, the agent loop, rate-limit fallback
+npm test          # 15 tests: date resolution, recall, visitor isolation, the agent loop, rate-limit fallback
 npm run typecheck
 ```
 
@@ -72,5 +89,7 @@ the waits.
 | `src/llm.ts` | OpenAI-compatible model client with rate-limit fallback |
 | `src/prompt.ts` | System prompt and tool definition |
 | `src/server.ts` | HTTP server and streaming chat endpoint |
-| `public/index.html` | The chat UI |
-| `scripts/seed.ts` | Seeds back-dated demo conversations |
+| `src/demo.ts`, `demo/history.json` | Sample history a visitor can load |
+| `public/index.html` | The chat UI (GSAP and Lenis for motion and scrolling) |
+| `scripts/seed.ts` | Generates back-dated conversations with real searches |
+| `render.yaml` | Render deployment blueprint |

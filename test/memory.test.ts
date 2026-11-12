@@ -83,3 +83,21 @@ test("recall does not run for ordinary questions", () => {
   const { s } = seeded();
   assert.equal(recall(s, "What's the cheapest Postgres host today?", NOW, TZ), null);
 });
+
+test("visitors cannot list, open or recall each other's conversations", async () => {
+  const { loadDemoHistory } = await import("../src/demo.ts");
+  const base = new Store(":memory:");
+  const alice = base.scoped("alice-0001"), bob = base.scoped("bob-00002");
+  assert.equal(loadDemoHistory(alice, NOW, TZ), 3);
+  assert.equal(loadDemoHistory(alice, NOW, TZ), 0); // loading twice adds nothing
+  const mine = alice.listConversations();
+  assert.equal(mine.length, 3);
+  assert.equal(bob.listConversations().length, 0);
+  assert.deepEqual(bob.messages(mine[0].id), []);
+  assert.equal(bob.conversationExists(mine[0].id), false);
+  assert.match(recall(alice, "What did I ask you on 3 November?", NOW, TZ)!.status, /Found 1 past conversation/);
+  assert.match(recall(bob, "What did I ask you on 3 November?", NOW, TZ)!.status, /history is empty/);
+  // The sample history lands on the days the sample questions point at.
+  assert.match(recall(alice, "On Monday we shortlisted 5 CRM tools", NOW, TZ)!.block, /CRM/);
+  assert.match(recall(alice, "Last Tuesday I asked you about Postgres hosting", NOW, TZ)!.block, /Postgres/);
+});

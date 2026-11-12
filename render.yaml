@@ -1,0 +1,17 @@
+# Render blueprint: https://render.com/deploy?repo=https://github.com/vaibhav375/minimi-search-agent
+# The free plan's disk is wiped on restart, so history does not persist there; visitors can load
+# the sample history from the start page.
+services:
+  - type: web
+    name: recall-search-agent
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: LLM_API_KEY
+        sync: false
+      - key: EXA_API_KEY
+        sync: false

@@ -3,112 +3,277 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Search Chat</title>
+  <meta name="color-scheme" content="dark" />
+  <meta name="description" content="A web-search agent that cites its sources and remembers what you asked, and when." />
+  <title>Recall: search with a memory</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=Martian+Mono:wght@400;600&display=swap" />
   <style>
+    /* One typeface, used at the two ends of its width axis: ultra-condensed for the wordmark,
+       extended for headings, normal for reading. Mono is for dates, steps and sources. */
     :root {
-      --bg: #fbfaf8; --panel: #f3f1ed; --text: #1d1b18; --muted: #6f6a62; --line: #e4e0d9;
-      --accent: #2f5d50; --accent-soft: #e3ece8; --user: #ecebe7; --danger: #a3352b;
-      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root { --bg: #171716; --panel: #1f1f1d; --text: #ecebe7; --muted: #9b968d; --line: #33322f;
-              --accent: #8cc4b2; --accent-soft: #23332e; --user: #2a2a27; --danger: #e07b70; }
+      --ink: #0c0b09; --paper: #f2efe6; --mark: #ffe03d; --dim: #8a867b; --line: #2a2823; --alert: #ff7a66;
+      --sans: "Archivo", "Helvetica Neue", Arial, sans-serif;
+      --mono: "Martian Mono", ui-monospace, "SF Mono", Menlo, monospace;
+      --gutter: clamp(16px, 3.4vw, 44px);
+      --measure: 780px;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; background: var(--bg); color: var(--text); height: 100dvh; display: grid; grid-template-columns: 260px 1fr; }
-    aside { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
-    aside button.new { margin: 14px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; cursor: pointer; text-align: left; }
-    aside button.new:hover { border-color: var(--accent); }
-    #list { overflow-y: auto; padding: 0 8px 14px; }
-    #list a { display: block; padding: 8px 10px; border-radius: 7px; color: var(--text); text-decoration: none; font-size: 14px; }
-    #list a small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
-    #list a:hover, #list a.active { background: var(--bg); }
-    main { display: flex; flex-direction: column; min-height: 0; }
-    #messages { flex: 1; overflow-y: auto; padding: 28px 16px 8px; }
-    .wrap { max-width: 760px; margin: 0 auto; }
-    .msg { margin: 0 0 26px; line-height: 1.6; }
-    .msg.user { background: var(--user); padding: 10px 14px; border-radius: 14px; width: fit-content; max-width: 85%; margin-left: auto; white-space: pre-wrap; }
-    .steps { font-size: 13px; color: var(--muted); margin-bottom: 8px; display: flex; flex-direction: column; gap: 3px; }
-    .steps span::before { content: "↳ "; }
-    .steps span.recall { color: var(--accent); }
+    html, body { height: 100%; }
+    body {
+      margin: 0; background: var(--ink); color: var(--paper); font-family: var(--sans); font-size: 16.5px; line-height: 1.62;
+      font-variation-settings: "wdth" 100; -webkit-font-smoothing: antialiased; overflow: hidden;
+      background-image: radial-gradient(70vw 55vh at 88% 112%, rgba(255, 224, 61, .11), transparent 70%);
+    }
+    ::selection { background: var(--mark); color: var(--ink); }
+    :focus-visible { outline: 2px solid var(--paper); outline-offset: 3px; }
+    button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+    .mono { font-family: var(--mono); font-size: 11px; letter-spacing: .04em; text-transform: uppercase; }
+    .wide { font-variation-settings: "wdth" 125; font-weight: 800; text-transform: uppercase; letter-spacing: -.01em; }
+
+    #field { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
+
+    /* ---- header ---- */
+    header { position: fixed; top: 0; left: 0; right: 0; z-index: 30; display: flex; align-items: center; gap: 14px;
+      padding: 16px var(--gutter); background: linear-gradient(var(--ink) 40%, transparent); }
+    .logo { width: 40px; height: 40px; border-radius: 9px; background: var(--mark); color: var(--ink); display: grid; place-items: center;
+      font-variation-settings: "wdth" 62; font-weight: 900; font-size: 30px; line-height: 1; text-decoration: none; flex: none; }
+    #crumb { flex: 1; min-width: 0; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .nav { display: flex; align-items: center; gap: 6px; }
+    .nav button { padding: 10px 12px; border-radius: 8px; }
+    .nav button:hover { color: var(--mark); }
+    .burger { display: grid; gap: 6px; width: 30px; }
+    .burger i { display: block; height: 2px; background: currentColor; }
+
+    /* ---- scrolling stage ---- */
+    #scroller { position: relative; z-index: 1; height: 100dvh; overflow-y: auto; overflow-x: clip; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+    #stage { padding: 84px var(--gutter) 150px; min-height: 100%; }
+
+    /* ---- landing ---- */
+    .hero-top { display: flex; justify-content: space-between; gap: 16px; color: var(--dim); }
+    .wordmark { margin: 6px 0 0; color: var(--mark); font-weight: 900; line-height: .78; white-space: nowrap; text-transform: uppercase;
+      letter-spacing: -.012em; font-size: 30vw; overflow: clip; overflow-clip-margin: 0; padding-top: .06em; }
+    .wordmark span { display: inline-block; font-variation-settings: "wdth" var(--w, 62); }
+    .tagline { margin: clamp(10px, 1.6vw, 22px) 0 0; text-align: right; font-size: clamp(20px, 4.1vw, 60px); line-height: 1; }
+    .lede { display: grid; grid-template-columns: minmax(0, 34em) auto; justify-content: space-between; align-items: end; gap: 24px; margin-top: clamp(22px, 3.4vw, 46px); }
+    .lede p { margin: 0; font-size: clamp(17px, 1.55vw, 21px); line-height: 1.45; }
+    .byline { color: var(--paper); text-decoration: underline; text-underline-offset: 4px; white-space: nowrap; }
+    .byline:hover { color: var(--mark); }
+
+    .slab { display: flex; align-items: stretch; width: 100%; margin-top: clamp(28px, 4vw, 56px); border-radius: 16px; border: 1px solid var(--dim); color: var(--paper); text-align: left; overflow: hidden; transition: border-color .25s; }
+    .slab:hover { border-color: var(--mark); }
+    .slab .tile { flex: none; width: 76px; margin: 6px; border-radius: 11px; background: var(--mark); color: var(--ink); display: grid; place-items: center; }
+    .slab .label { padding: 18px 20px 18px 14px; display: grid; gap: 4px; align-content: center; }
+    .slab b { font-size: clamp(18px, 2.1vw, 28px); line-height: 1; }
+    .slab small { font-size: 14.5px; line-height: 1.35; color: var(--dim); }
+    .slab:hover .tile svg { transform: translateY(3px); }
+    .slab .tile svg { transition: transform .25s; }
+    .note { margin-top: clamp(28px, 4vw, 56px); color: var(--dim); }
+
+    .tries { margin-top: clamp(26px, 3.6vw, 48px); border-top: 1px solid var(--line); }
+    .tries h2 { margin: 0; padding: 14px 0; color: var(--dim); font-weight: 400; }
+    .try { display: grid; grid-template-columns: 76px 1fr 28px; gap: 14px; align-items: baseline; width: 100%; padding: 17px 0; border-top: 1px solid var(--line); text-align: left; }
+    .try .tag { color: var(--dim); }
+    .try .q { font-size: clamp(17px, 1.7vw, 22px); line-height: 1.3; font-weight: 500; }
+    .try .go { justify-self: end; color: var(--dim); transition: transform .25s, color .25s; }
+    .try:hover .q, .try:hover .tag { color: var(--mark); }
+    .try:hover .go { color: var(--mark); transform: translateX(5px); }
+
+    /* ---- conversation ---- */
+    .thread { max-width: var(--measure); margin: 0 auto; }
+    .turn { padding: 30px 0 34px; border-top: 1px solid var(--line); }
+    .turn:first-child { border-top: 0; padding-top: 12px; }
+    .ask { margin: 0 0 16px; font-variation-settings: "wdth" 112; font-weight: 700; font-size: clamp(21px, 2.3vw, 29px); line-height: 1.18; letter-spacing: -.01em; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .steps { display: grid; gap: 7px; margin-bottom: 16px; color: var(--dim); text-transform: none; letter-spacing: 0; }
+    .steps span { display: flex; gap: 9px; align-items: baseline; overflow-wrap: anywhere; }
+    .steps span::before { content: ""; flex: none; width: 6px; height: 6px; background: var(--dim); transform: translateY(-1px); }
+    .steps .recall { color: var(--mark); }
+    .steps .recall::before { background: var(--mark); }
+    .answer { overflow-wrap: anywhere; }
     .answer > :first-child { margin-top: 0; }
-    .answer table { border-collapse: collapse; margin: 10px 0; font-size: 14px; display: block; overflow-x: auto; }
-    .answer th, .answer td { border: 1px solid var(--line); padding: 6px 9px; text-align: left; vertical-align: top; }
-    .answer a { color: var(--accent); }
-    .answer code { background: var(--panel); padding: 1px 5px; border-radius: 4px; }
-    a.cite { display: inline-block; min-width: 18px; padding: 0 5px; margin: 0 1px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); font-size: 11px; line-height: 17px; text-align: center; text-decoration: none; vertical-align: 2px; }
-    a.cite:hover { background: var(--accent); color: var(--bg); }
-    .sources { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 6px; }
-    .sources a { font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; text-decoration: none; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .sources a:hover { border-color: var(--accent); color: var(--text); }
-    .sources b { color: var(--accent); font-weight: 600; margin-right: 4px; }
-    .error { color: var(--danger); }
-    .cursor::after { content: "▍"; color: var(--accent); animation: blink 1s steps(1) infinite; }
+    .answer > :last-child { margin-bottom: 0; }
+    .answer h1, .answer h2, .answer h3, .answer h4 { font-variation-settings: "wdth" 112; font-size: 18px; line-height: 1.25; margin: 1.5em 0 .5em; }
+    .answer strong { font-weight: 700; }
+    .answer a { color: var(--paper); text-decoration: underline; text-decoration-color: var(--dim); text-underline-offset: 3px; }
+    .answer a:hover { color: var(--mark); }
+    .answer ul, .answer ol { padding-left: 1.25em; }
+    .answer li { margin: .3em 0; }
+    .answer blockquote { margin: 1em 0; padding-left: 16px; border-left: 2px solid var(--mark); color: var(--dim); }
+    .answer code { font-family: var(--mono); font-size: .82em; background: var(--line); padding: 2px 6px; border-radius: 4px; }
+    .answer table { display: block; overflow-x: auto; border-collapse: collapse; margin: 1.1em 0; font-size: 14.5px; line-height: 1.45; }
+    .answer th { font-family: var(--mono); font-size: 10.5px; font-weight: 400; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); text-align: left; padding: 0 16px 9px 0; border-bottom: 1px solid var(--dim); white-space: nowrap; }
+    .answer td { padding: 10px 16px 10px 0; border-bottom: 1px solid var(--line); vertical-align: top; min-width: 96px; }
+    /* A citation is a highlighter tab: the same yellow as everything you can act on. */
+    a.cite { display: inline-block; min-width: 17px; padding: 0 4px; margin: 0 1.5px; border-radius: 3px; background: var(--mark); color: var(--ink);
+      font-family: var(--mono); font-size: 10px; font-weight: 600; line-height: 16px; text-align: center; text-decoration: none; vertical-align: 2px; }
+    a.cite:hover { background: var(--paper); color: var(--ink); }
+    .sources { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 18px; }
+    .sources a { display: inline-flex; gap: 7px; align-items: center; max-width: 250px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px; color: var(--dim); text-decoration: none; text-transform: none; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sources a b { color: var(--mark); font-weight: 600; }
+    .sources a:hover { border-color: var(--mark); color: var(--paper); }
+    .error { color: var(--alert); margin: .6em 0 0; }
+    .cursor::after { content: ""; display: inline-block; width: 9px; height: 1.05em; margin-left: 3px; background: var(--mark); vertical-align: -3px; animation: blink 1s steps(1) infinite; }
     @keyframes blink { 50% { opacity: 0; } }
-    form { padding: 10px 16px 18px; }
-    .composer { display: flex; gap: 8px; align-items: flex-end; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); padding: 8px; }
-    textarea { flex: 1; resize: none; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; line-height: 1.5; max-height: 200px; padding: 4px 6px; }
-    form button { border: 0; border-radius: 10px; background: var(--accent); color: var(--bg); font: inherit; padding: 7px 14px; cursor: pointer; }
-    form button:disabled { opacity: .45; cursor: default; }
-    .empty { text-align: center; color: var(--muted); margin-top: 12vh; }
-    .empty h1 { color: var(--text); font-weight: 600; font-size: 24px; margin-bottom: 6px; }
-    .examples { display: grid; gap: 8px; max-width: 560px; margin: 22px auto 0; }
-    .examples button { text-align: left; border: 1px solid var(--line); background: var(--bg); color: var(--text); border-radius: 10px; padding: 10px 12px; font: inherit; font-size: 14px; cursor: pointer; }
-    .examples button:hover { border-color: var(--accent); }
-    @media (max-width: 720px) { body { grid-template-columns: 1fr; } aside { display: none; } }
+
+    /* ---- composer: the one slab you always have ---- */
+    form { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; padding: 28px var(--gutter) 18px; background: linear-gradient(transparent, var(--ink) 46%); pointer-events: none; }
+    .composer { pointer-events: auto; display: flex; align-items: flex-end; gap: 8px; max-width: var(--measure); margin: 0 auto; padding: 7px 7px 7px 20px; border-radius: 16px; background: var(--mark); }
+    body.landing .composer { max-width: none; }
+    textarea { flex: 1; min-width: 0; resize: none; border: 0; outline: 0; background: transparent; color: var(--ink); font: inherit; font-size: 18px; font-weight: 500; line-height: 1.4; max-height: 180px; padding: 11px 0; }
+    textarea::placeholder { color: rgba(12, 11, 9, .55); }
+    .composer:focus-within { box-shadow: 0 0 0 2px var(--ink), 0 0 0 4px var(--paper); }
+    #send { flex: none; width: 48px; height: 48px; border-radius: 11px; background: var(--ink); color: var(--mark); display: grid; place-items: center; transition: transform .2s; }
+    #send:hover:not(:disabled) { transform: translateY(-2px); }
+    #send:disabled { opacity: .35; cursor: default; }
+
+    /* ---- history drawer ---- */
+    #veil { position: fixed; inset: 0; z-index: 40; background: rgba(12, 11, 9, .62); opacity: 0; visibility: hidden; }
+    #drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 50; width: min(440px, 100vw); display: flex; flex-direction: column; background: var(--ink); border-left: 1px solid var(--line); transform: translateX(100%); visibility: hidden; }
+    .drawer-head { display: flex; justify-content: space-between; align-items: center; padding: 18px 22px; }
+    .drawer-head h2 { margin: 0; font-size: 22px; }
+    #list { flex: 1; overflow-y: auto; padding: 0 22px 22px; }
+    #list a { display: grid; grid-template-columns: 96px 1fr; gap: 12px; align-items: baseline; padding: 14px 0; border-top: 1px solid var(--line); color: var(--paper); text-decoration: none; }
+    #list a time { color: var(--dim); }
+    #list a span { font-size: 15.5px; line-height: 1.35; font-weight: 500; }
+    #list a:hover span, #list a.active span { color: var(--mark); }
+    #list a.active time { color: var(--mark); }
+    #list p { color: var(--dim); font-size: 15px; }
+
+    @media (max-width: 640px) {
+      .lede { grid-template-columns: 1fr; }
+      .try { grid-template-columns: 1fr 22px; }
+      .try .tag { grid-column: 1 / -1; }
+      .slab .tile { width: 58px; }
+      #crumb { display: none; }
+      .nav { margin-left: auto; }
+    }
+    @media (prefers-reduced-motion: reduce) { .cursor::after { animation: none; } * { transition: none !important; } }
   </style>
 </head>
-<body>
-  <aside>
-    <button class="new" id="new">+ New chat</button>
+<body class="landing">
+  <canvas id="field" aria-hidden="true"></canvas>
+
+  <header>
+    <a class="logo" href="/" id="home" aria-label="Recall, start a new chat">R</a>
+    <div class="mono" id="crumb"></div>
+    <nav class="nav">
+      <button class="mono" id="new" type="button">New chat</button>
+      <button id="open" type="button" aria-label="Open history" aria-expanded="false" aria-controls="drawer"><span class="burger"><i></i><i></i></span></button>
+    </nav>
+  </header>
+
+  <div id="scroller"><main id="stage"></main></div>
+
+  <form id="form">
+    <div class="composer">
+      <textarea id="input" rows="1" placeholder="Ask anything" aria-label="Your question"></textarea>
+      <button id="send" type="submit" aria-label="Send">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="square"><path d="M10 17V4M4 9.5 10 3.5l6 6" /></svg>
+      </button>
+    </div>
+  </form>
+
+  <div id="veil"></div>
+  <aside id="drawer" aria-label="History" aria-hidden="true">
+    <div class="drawer-head">
+      <h2 class="wide">History</h2>
+      <button class="mono" id="close" type="button">Close</button>
+    </div>
     <nav id="list"></nav>
   </aside>
-  <main>
-    <div id="messages"><div class="wrap" id="thread"></div></div>
-    <form id="form">
-      <div class="wrap composer">
-        <textarea id="input" rows="1" placeholder="Ask anything…" autofocus></textarea>
-        <button id="send" type="submit">Send</button>
-      </div>
-    </form>
-  </main>
 
+  <script src="/vendor/gsap.js"></script>
+  <script src="/vendor/lenis.js"></script>
   <script type="module">
     import { marked } from "/vendor/marked.js";
     import DOMPurify from "/vendor/purify.js";
 
     const $ = (id) => document.getElementById(id);
-    const thread = $("thread"), input = $("input"), send = $("send"), list = $("list"), scroller = $("messages");
+    const stage = $("stage"), input = $("input"), send = $("send"), list = $("list"), scroller = $("scroller");
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    let conversationId = null, busy = false;
+    const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const REPO = "https://github.com/vaibhav375/minimi-search-agent";
+    let conversationId = null, busy = false, thread = null;
 
-    const EXAMPLES = [
-      "On Monday we shortlisted 5 CRM tools for a 20-person sales team. Has any of them changed pricing or shipped something big since?",
-      "Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?",
-      "What did I ask you on 3 November? Is your answer still correct today?",
-      "What's new in the latest Node.js release?",
+    // A random id per browser keeps each visitor's history separate on a shared deployment.
+    const visitor = (() => {
+      try { return localStorage.visitor ??= crypto.randomUUID(); } catch { return crypto.randomUUID(); }
+    })();
+    const api = (path, init = {}) => fetch(path, { ...init, headers: { ...init.headers, "x-visitor": visitor } });
+
+    const SAMPLES = [
+      ["Memory", "On Monday we shortlisted 5 CRM tools for a 20-person sales team. Has any of them changed pricing or shipped something big since?"],
+      ["Memory", "Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?"],
+      ["Memory", "What did I ask you on 3 November? Is your answer still correct today?"],
+      ["Live web", "What's new in the latest Node.js release?"],
     ];
+    const ARROW = `<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="square"><path d="M3 11h15M12.5 5l6 6-6 6"/></svg>`;
+    const DOWN = `<svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="square"><path d="M13 4v16M6 14l7 7 7-7"/></svg>`;
 
     const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
     const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return u; } };
+    const stamp = (d) => new Date(d).toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short" }).replace(",", "");
 
+    // ---- smooth scrolling (Lenis) on the one scrolling surface ----
+    const lenis = calm ? null : new Lenis({ wrapper: scroller, content: stage, autoRaf: true, lerp: 0.11 });
+    const nearBottom = () => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 140;
+    function toBottom(force) {
+      if (!force && !nearBottom()) return;
+      if (lenis) lenis.scrollTo(scroller.scrollHeight, { immediate: true, force: true });
+      else scroller.scrollTop = scroller.scrollHeight;
+    }
+    function toTop() { if (lenis) lenis.scrollTo(0, { immediate: true, force: true }); else scroller.scrollTop = 0; }
+
+    // ---- ambient field: drifting points, and a ring that goes out each time the agent searches ----
+    const field = (() => {
+      const canvas = $("field"), ctx = canvas.getContext("2d");
+      let w = 0, h = 0, dots = [], rings = [], last = 0;
+      function size() {
+        const dpr = Math.min(devicePixelRatio || 1, 2);
+        w = innerWidth; h = innerHeight;
+        canvas.width = w * dpr; canvas.height = h * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        dots = Array.from({ length: Math.round((w * h) / 16000) }, () => ({ x: Math.random() * w, y: Math.random() * h, r: Math.random() * 1.1 + .3, v: Math.random() * .12 + .03 }));
+      }
+      function ping() { if (!calm) rings.push({ x: w * (.2 + Math.random() * .6), y: h * (.2 + Math.random() * .5), t: 0 }); }
+      function frame(now) {
+        const dt = Math.min(now - last, 50); last = now;
+        ctx.clearRect(0, 0, w, h);
+        ctx.fillStyle = "rgba(242,239,230,.34)";
+        for (const d of dots) {
+          if (!calm) { d.y -= d.v * dt * .06; if (d.y < -2) { d.y = h + 2; d.x = Math.random() * w; } }
+          ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, 6.283); ctx.fill();
+        }
+        rings = rings.filter((r) => (r.t += dt / 2600) < 1);
+        for (const r of rings) {
+          ctx.strokeStyle = `rgba(255,224,61,${(1 - r.t) * .34})`; ctx.lineWidth = 1.2;
+          ctx.beginPath(); ctx.arc(r.x, r.y, r.t * Math.max(w, h) * .55, 0, 6.283); ctx.stroke();
+        }
+        if (!calm && !document.hidden) requestAnimationFrame(frame);
+      }
+      addEventListener("resize", size);
+      document.addEventListener("visibilitychange", () => { if (!document.hidden && !calm) { last = performance.now(); requestAnimationFrame(frame); } });
+      size(); requestAnimationFrame(frame);
+      return { ping };
+    })();
+
+    // ---- rendering ----
     // Markdown -> safe HTML, with [n] turned into links to the numbered sources (unknown numbers dropped).
     function render(text, sources) {
       text = text.replace(/【(\d+)(?:†[^】]*)?】/g, "[$1]"); // some models cite as 【1】
       const html = marked.parse(text, { breaks: false }).replace(/\[(\d+)\]/g, (_, n) => {
         const s = sources.get(Number(n));
-        return s ? `<a class="cite" href="${esc(s.url)}" title="${esc(s.title)} — ${esc(host(s.url))}">${n}</a>` : "";
+        return s ? `<a class="cite" href="${esc(s.url)}" title="${esc(s.title)} · ${esc(host(s.url))}">${n}</a>` : "";
       });
-      const clean = DOMPurify.sanitize(html, { ADD_ATTR: ["target"] });
       const div = document.createElement("div");
-      div.innerHTML = clean;
+      div.innerHTML = DOMPurify.sanitize(html);
       div.querySelectorAll("a").forEach((a) => { a.target = "_blank"; a.rel = "noopener noreferrer"; });
       return div.innerHTML;
     }
 
     function sourceChips(sources) {
       const box = document.createElement("div");
-      box.className = "sources";
+      box.className = "sources mono";
       for (const s of sources) {
         const a = document.createElement("a");
         a.href = s.url; a.target = "_blank"; a.rel = "noopener noreferrer";
@@ -119,90 +284,143 @@
       return box;
     }
 
-    function addUser(text) {
-      const div = document.createElement("div");
-      div.className = "msg user";
-      div.textContent = text;
-      thread.append(div);
+    function addTurn(question, animate) {
+      const el = document.createElement("section");
+      el.className = "turn";
+      el.innerHTML = `<h2 class="ask"></h2><div class="steps mono"></div><div class="answer"></div>`;
+      el.querySelector(".ask").textContent = question;
+      thread.append(el);
+      if (animate && !calm) gsap.from(el, { y: 22, opacity: 0, duration: .55, ease: "power3.out" });
+      return { el, steps: el.querySelector(".steps"), answer: el.querySelector(".answer") };
     }
 
-    function addAssistant() {
-      const div = document.createElement("div");
-      div.className = "msg";
-      div.innerHTML = `<div class="steps"></div><div class="answer cursor"></div>`;
-      thread.append(div);
-      return { div, steps: div.querySelector(".steps"), answer: div.querySelector(".answer") };
+    function showThread(title) {
+      document.body.classList.remove("landing");
+      stage.innerHTML = `<div class="thread"></div>`;
+      thread = stage.firstChild;
+      $("crumb").textContent = title ?? "";
     }
 
-    const nearBottom = () => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120;
-    const scroll = (force) => { if (force || nearBottom()) scroller.scrollTop = scroller.scrollHeight; };
-
-    function showEmpty() {
-      thread.innerHTML = `<div class="empty"><h1>Ask me anything</h1>
-        <div>I search the web, cite my sources, and remember what we talked about and when.</div>
-        <div class="examples"></div></div>`;
-      const box = thread.querySelector(".examples");
-      for (const ex of EXAMPLES) {
-        const b = document.createElement("button");
-        b.type = "button"; b.textContent = ex;
-        b.onclick = () => { input.value = ex; ask(); };
-        box.append(b);
+    function showLanding() {
+      document.body.classList.add("landing");
+      thread = null; conversationId = null;
+      $("crumb").textContent = "";
+      history.replaceState(null, "", "/");
+      const today = new Date().toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric" }).replace(",", "");
+      stage.innerHTML = `
+        <div class="hero-top mono"><span>Web search agent</span><span>${today}</span></div>
+        <h1 class="wordmark" aria-label="Recall">${[..."Recall"].map((c) => `<span aria-hidden="true">${c}</span>`).join("")}</h1>
+        <p class="tagline wide">Search with a memory</p>
+        <div class="lede">
+          <p>Ask anything and get an answer from the live web, with its sources. Ask again next week and it checks what changed, because it keeps what you asked and when.</p>
+          <a class="byline mono" href="${REPO}" target="_blank" rel="noopener noreferrer">Built by vaibhav375 · source on GitHub</a>
+        </div>
+        <div id="demo"></div>
+        <section class="tries">
+          <h2 class="mono">Try one</h2>
+          ${SAMPLES.map(([tag, q], i) => `<button class="try" type="button" data-i="${i}"><span class="tag mono">${tag}</span><span class="q">${esc(q)}</span><span class="go">${ARROW}</span></button>`).join("")}
+        </section>`;
+      stage.querySelectorAll(".try").forEach((b) => (b.onclick = () => { input.value = SAMPLES[b.dataset.i][1]; ask(); }));
+      fitWordmark();
+      toTop();
+      refreshHistory();
+      if (!calm) {
+        // The wordmark arrives wide and squeezes down to fit: the width axis is the whole identity.
+        gsap.fromTo(".wordmark span", { "--w": 125, yPercent: 30, opacity: 0 }, { "--w": 62, yPercent: 0, opacity: 1, duration: 1.15, ease: "expo.out", stagger: .05 });
+        gsap.from(".tagline, .lede, #demo, .tries", { y: 26, opacity: 0, duration: .8, ease: "power3.out", stagger: .08, delay: .35 });
       }
     }
 
-    async function loadList() {
-      const items = await (await fetch("/api/conversations")).json();
-      list.innerHTML = "";
+    // Size the wordmark so its six letters span the full width exactly.
+    function fitWordmark() {
+      const el = stage.querySelector(".wordmark");
+      if (!el) return;
+      // Measured on a hidden copy at the final (condensed) width, so the intro animation cannot skew it.
+      const probe = document.createElement("span");
+      probe.textContent = "Recall";
+      probe.style.cssText = "position:absolute;visibility:hidden;font-size:200px;--w:62";
+      el.append(probe);
+      const natural = probe.getBoundingClientRect().width;
+      probe.remove();
+      el.style.fontSize = Math.min((el.clientWidth / natural) * 200, innerHeight * .62) + "px";
+    }
+    addEventListener("resize", fitWordmark);
+    document.fonts?.ready.then(fitWordmark);
+
+    // The slab that adds sample history, shown on the landing page until the visitor has it.
+    function demoSlab(hasHistory) {
+      const box = $("demo");
+      if (!box) return;
+      if (hasHistory) { if (box.querySelector(".slab")) box.innerHTML = ""; return; } // keep the "loaded" note
+      box.innerHTML = `<button class="slab" type="button"><span class="tile">${DOWN}</span><span class="label"><b class="wide">Load sample history</b><small>Three past conversations, dated last Monday, last Tuesday and 3 November, so the memory questions below have something to find.</small></span></button>`;
+      box.firstChild.onclick = async () => {
+        box.firstChild.disabled = true;
+        const res = await api(`/api/demo?tz=${encodeURIComponent(tz)}`, { method: "POST" });
+        if (!res.ok) { box.innerHTML = `<p class="note mono" style="color:var(--alert)">Could not load the sample history. Try again.</p>`; return; }
+        box.innerHTML = `<p class="note mono">Sample history loaded. It is in History, top right.</p>`;
+        field.ping();
+        refreshHistory();
+      };
+    }
+
+    async function refreshHistory() {
+      let items = [];
+      try { items = await (await api("/api/conversations")).json(); } catch {}
+      list.innerHTML = items.length ? "" : `<p>Nothing here yet. Ask a question, or load the sample history from the start page.</p>`;
       for (const c of items) {
         const a = document.createElement("a");
         a.href = "#" + c.id;
         a.className = c.id === conversationId ? "active" : "";
-        const when = new Date(c.lastAt).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
-        a.innerHTML = `${esc(c.title)}<small>${when}</small>`;
-        a.onclick = (e) => { e.preventDefault(); openConversation(c.id); };
+        a.innerHTML = `<time class="mono">${stamp(c.lastAt)}</time><span>${esc(c.title)}</span>`;
+        a.onclick = (e) => { e.preventDefault(); drawer(false); openConversation(c.id); };
         list.append(a);
       }
+      demoSlab(items.length > 0);
     }
 
     async function openConversation(id) {
       if (busy) return;
+      const res = await api(`/api/conversations/${id}`);
+      const messages = res.ok ? await res.json() : [];
+      if (!messages.length) return showLanding();
       conversationId = id;
       history.replaceState(null, "", "#" + id);
-      const messages = await (await fetch(`/api/conversations/${id}`)).json();
-      thread.innerHTML = "";
+      showThread(`${stamp(messages[0].createdAt)} · ${messages[0].content}`);
+      let turn = null;
       for (const m of messages) {
-        if (m.role === "user") { addUser(m.content); continue; }
-        const { answer } = addAssistant();
-        answer.classList.remove("cursor");
-        answer.innerHTML = render(m.content, new Map(m.sources.map((s) => [s.n, s])));
-        if (m.sources.length) answer.after(sourceChips(m.sources));
+        if (m.role === "user") { turn = addTurn(m.content, false); continue; }
+        if (!turn) continue;
+        turn.answer.innerHTML = render(m.content, new Map(m.sources.map((s) => [s.n, s])));
+        if (m.sources.length) turn.answer.after(sourceChips(m.sources));
       }
-      scroll(true);
-      loadList();
+      if (!calm) gsap.from(".turn", { y: 18, opacity: 0, duration: .5, ease: "power3.out", stagger: .06 });
+      toTop();
+      refreshHistory();
     }
 
     async function ask() {
       const text = input.value.trim();
       if (!text || busy) return;
       busy = true; send.disabled = true;
-      if (thread.querySelector(".empty")) thread.innerHTML = "";
+      if (!thread) showThread(text);
       input.value = ""; input.style.height = "";
-      addUser(text);
-      const { steps, answer } = addAssistant();
-      scroll(true);
+      const { steps, answer } = addTurn(text, true);
+      answer.classList.add("cursor");
+      toBottom(true);
 
       const sources = new Map();
       let raw = "", frame = 0;
-      const paint = () => { frame = 0; answer.innerHTML = render(raw, sources); scroll(); };
-      const step = (t, cls = "") => { const s = document.createElement("span"); s.textContent = t; s.className = cls; steps.append(s); scroll(); };
+      const paint = () => { frame = 0; answer.innerHTML = render(raw, sources); toBottom(); };
+      const step = (t, recall) => { const s = document.createElement("span"); s.textContent = t; if (recall) s.className = "recall"; steps.append(s); toBottom(); };
+      const fail = (message) => answer.insertAdjacentHTML("beforeend", `<p class="error">${esc(message)}</p>`);
 
       try {
-        const res = await fetch("/api/chat", {
+        const res = await api("/api/chat", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ text, conversationId, timezone: tz, locale: navigator.language }),
         });
-        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `The server answered with an error (${res.status}).`);
         const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
         let buf = "";
         for (;;) {
@@ -216,30 +434,55 @@
             if (!data) continue;
             const ev = JSON.parse(data.slice(6));
             if (ev.type === "conversation") { conversationId = ev.id; history.replaceState(null, "", "#" + ev.id); }
-            else if (ev.type === "status") step(ev.text, ev.text.startsWith("Recalled") || ev.text.startsWith("No ") ? "recall" : "");
+            else if (ev.type === "status") { const recall = /^(Recalled|No )/.test(ev.text); step(ev.text, recall); if (!recall) field.ping(); }
             else if (ev.type === "search") ev.results.forEach((r) => sources.set(r.n, r));
             else if (ev.type === "text") { raw += ev.delta; if (!frame) frame = requestAnimationFrame(paint); }
-            else if (ev.type === "done") { raw = raw.replace(/\s?\[(\d+)\]/g, (m, n) => (sources.has(Number(n)) ? m : "")); paint(); if (ev.sources.length) answer.after(sourceChips(ev.sources)); }
-            else if (ev.type === "error") { answer.insertAdjacentHTML("beforeend", `<p class="error">${esc(ev.message)}</p>`); }
+            else if (ev.type === "done") {
+              raw = raw.replace(/【(\d+)(?:†[^】]*)?】/g, "[$1]").replace(/\s?\[(\d+)\]/g, (m, n) => (sources.has(Number(n)) ? m : ""));
+              paint();
+              if (ev.sources.length) answer.after(sourceChips(ev.sources));
+            }
+            else if (ev.type === "error") fail(ev.message);
           }
         }
       } catch (err) {
-        answer.insertAdjacentHTML("beforeend", `<p class="error">${esc(err.message || "Network error")}</p>`);
+        fail(err.message || "Could not reach the server. Check your connection and try again.");
       } finally {
         answer.classList.remove("cursor");
         busy = false; send.disabled = false; input.focus();
-        scroll();
-        loadList();
+        toBottom();
+        refreshHistory();
       }
     }
+
+    // ---- history drawer ----
+    function drawer(open) {
+      const el = $("drawer"), veil = $("veil"), d = calm ? 0 : .45;
+      $("open").setAttribute("aria-expanded", String(open));
+      el.setAttribute("aria-hidden", String(!open));
+      if (open) {
+        gsap.set([el, veil], { visibility: "visible" });
+        gsap.to(el, { x: 0, duration: d, ease: "expo.out" });
+        gsap.to(veil, { opacity: 1, duration: d });
+        if (!calm) gsap.from("#list a", { x: 28, opacity: 0, duration: .45, ease: "power3.out", stagger: .035, delay: .08 });
+        $("close").focus();
+      } else {
+        gsap.to(el, { x: "100%", duration: d * .8, ease: "power3.in", onComplete: () => gsap.set(el, { visibility: "hidden" }) });
+        gsap.to(veil, { opacity: 0, duration: d * .8, onComplete: () => gsap.set(veil, { visibility: "hidden" }) });
+        $("open").focus();
+      }
+    }
+    $("open").onclick = () => drawer(true);
+    $("close").onclick = $("veil").onclick = () => drawer(false);
+    addEventListener("keydown", (e) => { if (e.key === "Escape" && $("drawer").getAttribute("aria-hidden") === "false") drawer(false); });
 
     $("form").onsubmit = (e) => { e.preventDefault(); ask(); };
     input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); ask(); } });
     input.addEventListener("input", () => { input.style.height = ""; input.style.height = input.scrollHeight + "px"; });
-    $("new").onclick = () => { if (busy) return; conversationId = null; history.replaceState(null, "", "/"); showEmpty(); loadList(); input.focus(); };
+    $("new").onclick = $("home").onclick = (e) => { e.preventDefault(); if (!busy) { showLanding(); input.focus(); } };
 
     const fromHash = Number(location.hash.slice(1));
-    if (fromHash) openConversation(fromHash); else { showEmpty(); loadList(); }
+    if (fromHash) openConversation(fromHash); else showLanding();
   </script>
 </body>
 </html>
