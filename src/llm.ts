@@ -45,7 +45,7 @@ export function openAICompatible(cfg: {
       if (!model) {
         const wait = Math.min(...usable.map((m) => parkedUntil.get(m)!)) - Date.now();
         if (wait > MAX_WAIT_MS) throw new FriendlyError("The free model tier is rate-limited right now. Please try again in a minute.");
-        yield { type: "status", text: `Free-tier limit reached, waiting ${Math.ceil(wait / 1000)}s` };
+        if (wait >= 3000) yield { type: "status", text: `Free-tier limit reached, waiting ${Math.ceil(wait / 1000)}s` };
         await sleep(wait);
         continue;
       }
@@ -76,7 +76,7 @@ export function openAICompatible(cfg: {
           const retryAfterS = Number(err.headers?.get("retry-after")) || 20;
           parkedUntil.set(model, Date.now() + retryAfterS * 1000);
           if (usable.some((m) => (parkedUntil.get(m) ?? 0) <= Date.now())) {
-            yield { type: "status", text: "Free-tier limit reached, switching to the backup model" };
+            yield { type: "status", text: "Free-tier limit reached, switching model" };
           }
           continue;
         }

@@ -411,7 +411,10 @@
         if (!turn) continue;
         turn.answer.innerHTML = render(m.content, new Map(m.sources.map((s) => [s.n, s])));
         if (m.sources.length) turn.answer.after(sourceChips(m.sources));
+        turn = null;
       }
+      // A question whose answer failed has no reply saved; say so rather than leave a gap.
+      thread.querySelectorAll(".answer:empty").forEach((a) => (a.innerHTML = `<p class="error">No answer was saved for this question. Ask it again to retry.</p>`));
       if (!calm) gsap.from(".turn", { y: 18, opacity: 0, duration: .5, ease: "power3.out", stagger: .06 });
       toTop();
     }
@@ -569,7 +572,7 @@
             <button class="mem-item" type="button" data-id="${it.id}">
               <time class="mono">${new Date(it.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</time>
               <span class="t">${hl(it.title)}</span>
-              <span class="p">${hl(it.preview)}</span>
+              <span class="p">${it.preview ? hl(it.preview) : "No answer was saved for this question."}</span>
               <span class="meta mono"><span><b>${it.questions}</b> ${it.questions === 1 ? "question" : "questions"} · <b>${it.sources}</b> ${it.sources === 1 ? "source" : "sources"}</span>${it.domains.length ? `<span>${esc(it.domains.join(" · "))}</span>` : ""}</span>
             </button>`).join("")}
         </section>`).join("");

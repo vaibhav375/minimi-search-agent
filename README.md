@@ -1,5 +1,10 @@
 # Recall
 
+**Live demo: https://recall-search-agent.onrender.com** (free hosting, so the first visit after a
+quiet spell can take a few seconds)
+
+![Recall start page](docs/landing.jpg)
+
 A chat agent with one tool, web search. It answers fast, cites every fact, and remembers what you
 talked about and when, so it can answer "What did I ask you on 3 November? Is your answer still
 correct today?" by finding that conversation and re-checking it against the live web.
@@ -47,12 +52,22 @@ Then ask, for example:
 - "Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?"
 - "What did I ask you on 3 November? Is your answer still correct today?"
 
+## What it looks like
+
+Asked "Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?", it
+finds that conversation, searches for changes since that date, and reports each item as unchanged
+or changed, with sources:
+
+![A memory question answered with a then-versus-now table](docs/recall.jpg)
+
 ## The Memory tab
 
 Everything you have asked, grouped by day, with each conversation's sources. One search box takes
 keywords and date phrases together: "last Tuesday postgres" reads the date the same way the agent
 does, says how it read it, and shows the matching conversations with the words highlighted. Chips
 filter to today, this week, last week or this month, or pick a single day.
+
+![The Memory tab filtered by "last Tuesday postgres"](docs/memory.jpg)
 
 ## Deploy
 
@@ -65,14 +80,21 @@ Any Node host works: run `npm install`, then `npm start` with `HOST=0.0.0.0` and
 
 On a public deployment each browser gets a random id and sees only its own history (it is not a
 login: anyone with the id could read that history). Each address is limited to 60 questions a day so
-a public demo cannot drain the free API quotas. Render's free plan wipes the database when the
-service restarts, so history there is temporary.
+a public demo cannot drain the free API quotas.
+
+Render's free plan wipes the disk on every restart. To keep history, create a free database at
+[Turso](https://app.turso.tech) and set `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` on the service:
+every write is copied there, and the history is restored from it on startup.
+
+A scheduled GitHub Action (`.github/workflows/keep-awake.yml`) pings the site every five minutes so
+the free instance doesn't fall asleep between visitors.
 
 ## Tests
 
 ```bash
-npm test          # 16 tests: date resolution, recall, memory search, visitor isolation, the agent loop, rate-limit fallback
+npm test          # 18 tests: date resolution, recall, memory search, visitor isolation, the agent loop, rate-limit fallback
 npm run typecheck
+npm run eval      # end-to-end: real model and search on 12 scripted questions; writes eval/results.md
 ```
 
 The tests use a fake model and fake search, so they need no keys and make no network calls.
@@ -99,4 +121,6 @@ the waits.
 | `src/demo.ts`, `demo/history.json` | Sample history a visitor can load |
 | `public/index.html` | The chat UI (GSAP and Lenis for motion and scrolling) |
 | `scripts/seed.ts` | Generates back-dated conversations with real searches |
+| `src/mirror.ts` | Optional durable copy of the history in Turso |
+| `scripts/eval.ts`, `eval/results.md` | End-to-end eval and its latest results |
 | `render.yaml` | Render deployment blueprint |

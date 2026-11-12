@@ -103,6 +103,7 @@ export function localDate(at: Date, timezone: string): string {
 export class Store {
   private db: DatabaseSync;
   private visitor: string; // whose conversations this view reads and writes
+  private sink: { write?: (sql: string, args: (string | number | null)[]) => void } = {}; // shared by all views
 
   constructor(path = "data/chat.db", visitor = "local") {
     this.visitor = visitor;
@@ -119,12 +120,39 @@ export class Store {
   // The same database, limited to one visitor's conversations. On a public deployment each browser
   // gets its own id, so nobody can list, open or recall anyone else's history.
   scoped(visitor: string): Store {
-    return Object.assign(Object.create(Store.prototype) as Store, { db: this.db, visitor });
+    return Object.assign(Object.create(Store.prototype) as Store, { db: this.db, visitor, sink: this.sink });
+  }
+
+  // Copy every write somewhere else as well (see mirror.ts). Rows carry their ids, so copies are exact.
+  mirrorTo(write: (sql: string, args: (string | number | null)[]) => void): void {
+    this.sink.write = write;
+  }
+
+  // Fill the store from a copy made by mirrorTo. Rows already present are left alone.
+  restore(data: { conversations: Record<string, unknown>[]; messages: Record<string, unknown>[]; sources: Record<string, unknown>[] }): void {
+    const conversation = this.db.prepare("INSERT OR IGNORE INTO conversations (id, title, created_at, visitor) VALUES (?, ?, ?, ?)");
+    const message = this.db.prepare(
+      "INSERT OR IGNORE INTO messages (id, conversation_id, role, content, created_at, local_date, timezone) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    );
+    const source = this.db.prepare("INSERT OR IGNORE INTO sources (message_id, n, url, title, published, query) VALUES (?, ?, ?, ?, ?, ?)");
+    type V = string | number | null;
+    this.db.exec("BEGIN");
+    try {
+      for (const c of data.conversations) conversation.run(c.id as V, c.title as V, c.created_at as V, c.visitor as V);
+      for (const m of data.messages) message.run(m.id as V, m.conversation_id as V, m.role as V, m.content as V, m.created_at as V, m.local_date as V, m.timezone as V);
+      for (const x of data.sources) source.run(x.message_id as V, x.n as V, x.url as V, x.title as V, x.published as V, x.query as V);
+      this.db.exec("COMMIT");
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
   }
 
   createConversation(title: string, at: Date): number {
     const r = this.db.prepare("INSERT INTO conversations (title, created_at, visitor) VALUES (?, ?, ?)").run(title, at.toISOString(), this.visitor);
-    return Number(r.lastInsertRowid);
+    const id = Number(r.lastInsertRowid);
+    this.sink.write?.("INSERT OR IGNORE INTO conversations (id, title, created_at, visitor) VALUES (?, ?, ?, ?)", [id, title, at.toISOString(), this.visitor]);
+    return id;
   }
 
   conversationExists(id: number): boolean {
@@ -132,15 +160,24 @@ export class Store {
   }
 
   addMessage(m: { conversationId: number; role: Role; content: string; at: Date; timezone: string }): number {
+    const row = [m.conversationId, m.role, m.content, m.at.toISOString(), localDate(m.at, m.timezone), m.timezone] as const;
     const r = this.db
       .prepare("INSERT INTO messages (conversation_id, role, content, created_at, local_date, timezone) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(m.conversationId, m.role, m.content, m.at.toISOString(), localDate(m.at, m.timezone), m.timezone);
-    return Number(r.lastInsertRowid);
+      .run(...row);
+    const id = Number(r.lastInsertRowid);
+    this.sink.write?.(
+      "INSERT OR IGNORE INTO messages (id, conversation_id, role, content, created_at, local_date, timezone) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [id, ...row],
+    );
+    return id;
   }
 
   addSources(messageId: number, sources: Source[]): void {
     const insert = this.db.prepare("INSERT INTO sources (message_id, n, url, title, published, query) VALUES (?, ?, ?, ?, ?, ?)");
-    for (const s of sources) insert.run(messageId, s.n, s.url, s.title, s.published, s.query);
+    for (const s of sources) {
+      insert.run(messageId, s.n, s.url, s.title, s.published, s.query);
+      this.sink.write?.("INSERT OR IGNORE INTO sources (message_id, n, url, title, published, query) VALUES (?, ?, ?, ?, ?, ?)", [messageId, s.n, s.url, s.title, s.published, s.query]);
+    }
   }
 
   // Conversations that have at least one saved exchange, most recently active first.

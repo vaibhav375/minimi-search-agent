@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import OpenAI from "openai";
 import { Store } from "../src/store.ts";
-import { runTurn, type AgentEvent } from "../src/agent.ts";
+import { runTurn, parseLeakedCalls, type AgentEvent } from "../src/agent.ts";
 import { SYSTEM_PROMPT } from "../src/prompt.ts";
 import { openAICompatible, type Complete, type Chunk } from "../src/llm.ts";
 import type { Search } from "../src/search.ts";
@@ -151,4 +151,39 @@ test("a rate-limited model stays parked across calls instead of being retried fi
   const complete = openAICompatible({ baseURL: "", apiKey: "", model: "primary", fallbackModel: "backup", client });
   for (let i = 0; i < 2; i++) for await (const _ of complete({ messages: [], allowTools: true }));
   assert.deepEqual(models, ["primary", "backup", "backup"]);
+});
+
+test("a question whose answer fails is still saved to history", async () => {
+  const store = new Store(":memory:");
+  const failing: Complete = async function* () { throw new Error("model down"); };
+  const events = await collect(runTurn({ store, complete: failing, search: fakeSearch, now: () => NOW }, { text: "What is new in Node.js?" }));
+  assert.equal(events.at(-1)!.type, "error");
+  assert.deepEqual(store.messages(1).map((m) => [m.role, m.content]), [["user", "What is new in Node.js?"]]);
+  assert.equal(store.listConversations().length, 1);
+});
+
+test("a search request written as text is never shown, and is run as a real search when allowed", async () => {
+  const leaked = "<tool_call> <function=web_search> <parameter=domains> [] <parameter=fresh> false <parameter=published_after> 2026-10-25 <parameter=query> FOMC October 2026 meeting decision </tool_call>";
+  assert.deepEqual(JSON.parse(parseLeakedCalls(leaked)[0].function.arguments), { fresh: false, published_after: "2026-10-25", query: "FOMC October 2026 meeting decision" });
+
+  const store = new Store(":memory:");
+  let queries: string[] = [];
+  const search: Search = async (a) => (queries.push(a.query), fakeSearch(a));
+  const events = await collect(runTurn({ store, complete: scripted([{ text: leaked }, { text: "The Fed held rates [1]." }]), search, now: () => NOW }, { text: "What did the Fed decide?" }));
+  const shown = events.filter((e) => e.type === "text").map((e) => (e.type === "text" ? e.delta : "")).join("");
+  assert.doesNotMatch(shown, /tool_call|<function/);
+  assert.deepEqual(queries, ["FOMC October 2026 meeting decision"]);
+  assert.equal(shown.trim(), "The Fed held rates [1].");
+});
+
+test("on the last step a written-out search is retried once with an instruction, never shown", async () => {
+  const leaked = "<tool_call> <function=web_search> <parameter=query> more please </tool_call>";
+  const store = new Store(":memory:");
+  const seen: { role: string; content: string }[][] = [];
+  const complete = scripted([{ calls: [{ query: "alpha" }] }, { calls: [{ query: "beta" }] }, { text: leaked }, { text: "Answer from what I have [1]." }], seen as unknown[][]);
+  const events = await collect(runTurn({ store, complete, search: fakeSearch, now: () => NOW }, { text: "question" }));
+  const shown = events.filter((e) => e.type === "text").map((e) => (e.type === "text" ? e.delta : "")).join("");
+  assert.equal(shown.trim(), "Answer from what I have [1].");
+  assert.ok(seen[2].some((m) => m.role === "user" && /used all the searches/.test(m.content)));
+  assert.equal(events.at(-1)!.type, "done");
 });

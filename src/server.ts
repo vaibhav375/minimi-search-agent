@@ -6,6 +6,7 @@ import { runTurn, safeTimezone } from "./agent.ts";
 import { loadDeps, env } from "./config.ts";
 import { loadDemoHistory } from "./demo.ts";
 import { searchMemory } from "./recall.ts";
+import { tursoMirror } from "./mirror.ts";
 
 const deps = loadDeps();
 
@@ -114,6 +115,17 @@ const server = createServer(async (req, res) => {
     else res.end();
   }
 });
+
+// With Turso configured, history survives restarts: restore it before serving, then copy every write.
+if (process.env.TURSO_DATABASE_URL && process.env.TURSO_AUTH_TOKEN) {
+  const mirror = tursoMirror(process.env.TURSO_DATABASE_URL, process.env.TURSO_AUTH_TOKEN);
+  try {
+    console.log(`Restored ${await mirror.restoreInto(deps.store)} conversations from Turso`);
+    deps.store.mirrorTo(mirror.push);
+  } catch (err) {
+    console.error(`Turso unavailable, running without a durable copy: ${(err as Error).message}`);
+  }
+}
 
 // Local runs listen on this machine only; a host sets HOST=0.0.0.0 to accept outside traffic.
 server.listen(env.port, process.env.HOST || "127.0.0.1", () => {

@@ -1,6 +1,5 @@
 # Render blueprint: https://render.com/deploy?repo=https://github.com/vaibhav375/minimi-search-agent
-# The free plan's disk is wiped on restart, so history does not persist there; visitors can load
-# the sample history from the start page.
+# The free plan's disk is wiped on restart; set the two TURSO_ variables to keep history in Turso.
 services:
   - type: web
     name: recall-search-agent
@@ -14,4 +13,8 @@ services:
       - key: LLM_API_KEY
         sync: false
       - key: EXA_API_KEY
+        sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
         sync: false

@@ -117,3 +117,31 @@ test("memory search: keywords, date phrases and date ranges combine", async () =
   assert.equal(pg.preview, "Neon's free plan is cheapest.");
   assert.deepEqual([pg.sources, pg.questions, pg.domains], [1, 1, ["neon.com"]]);
 });
+
+test("every write is mirrored with its id, and a fresh store restores from the copy exactly", async () => {
+  const { loadDemoHistory } = await import("../src/demo.ts");
+  // An in-memory stand-in for Turso: a second SQLite database that runs the mirrored statements.
+  const { DatabaseSync } = await import("node:sqlite");
+  const copy = new DatabaseSync(":memory:");
+  copy.exec(`CREATE TABLE conversations (id INTEGER PRIMARY KEY, title TEXT, created_at TEXT, visitor TEXT);
+    CREATE TABLE messages (id INTEGER PRIMARY KEY, conversation_id INTEGER, role TEXT, content TEXT, created_at TEXT, local_date TEXT, timezone TEXT);
+    CREATE TABLE sources (message_id INTEGER, n INTEGER, url TEXT, title TEXT, published TEXT, query TEXT, PRIMARY KEY (message_id, n));`);
+  const original = new Store(":memory:");
+  original.mirrorTo((sql, args) => copy.prepare(sql).run(...args));
+  loadDemoHistory(original.scoped("visitor-01"), NOW, TZ); // writes through a scoped view still mirror
+
+  const restored = new Store(":memory:");
+  restored.restore({
+    conversations: copy.prepare("SELECT * FROM conversations").all() as Record<string, unknown>[],
+    messages: copy.prepare("SELECT * FROM messages").all() as Record<string, unknown>[],
+    sources: copy.prepare("SELECT * FROM sources").all() as Record<string, unknown>[],
+  });
+  const a = original.scoped("visitor-01"), b = restored.scoped("visitor-01");
+  assert.deepEqual(b.listConversations(), a.listConversations());
+  const id = a.listConversations()[0].id;
+  assert.deepEqual(b.messages(id), a.messages(id));
+  // Full-text search and date recall work on the restored copy.
+  assert.match(recall(b, "Last Tuesday I asked you about Postgres hosting", NOW, TZ)!.block, /Postgres/);
+  // New rows continue after the restored ids.
+  assert.ok(b.createConversation("next", NOW) > Math.max(...a.listConversations().map((c) => c.id)));
+});
