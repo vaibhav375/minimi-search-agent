@@ -5,7 +5,7 @@ import { Store } from "../src/store.ts";
 import { runTurn, parseLeakedCalls, type AgentEvent } from "../src/agent.ts";
 import { SYSTEM_PROMPT } from "../src/prompt.ts";
 import { openAICompatible, type Complete, type Chunk } from "../src/llm.ts";
-import type { Search } from "../src/search.ts";
+import { excerpt, webSearch, type Search } from "../src/search.ts";
 
 const NOW = new Date("2026-11-12T14:00:00Z");
 
@@ -186,4 +186,46 @@ test("on the last step a written-out search is retried once with an instruction,
   assert.equal(shown.trim(), "Answer from what I have [1].");
   assert.ok(seen[2].some((m) => m.role === "user" && /used all the searches/.test(m.content)));
   assert.equal(events.at(-1)!.type, "done");
+});
+
+test("any failure on one model moves the call on to the next route, ending with an extra host", async () => {
+  const tried: string[] = [];
+  const fake = (name: string, fail?: () => never) => ({
+    chat: { completions: { stream(params: { model: string }) {
+      tried.push(`${name}:${params.model}`);
+      if (fail) fail();
+      return {
+        async *[Symbol.asyncIterator]() { yield { choices: [{ delta: { content: "ok" } }] }; },
+        finalChatCompletion: async () => ({ choices: [{ message: { role: "assistant", content: "ok" } }], usage: { total_tokens: 1 } }),
+      };
+    } } },
+  }) as unknown as Pick<OpenAI, "chat">;
+  const groq = fake("groq", () => { throw new OpenAI.BadRequestError(400, undefined, "unsupported parameter", new Headers()); });
+  const complete = openAICompatible({ baseURL: "g", apiKey: "", model: "qwen", fallbackModel: "gpt-oss", client: groq, extra: [{ baseURL: "a", apiKey: "", model: "asi1", client: fake("asi") }] });
+  const chunks: Chunk[] = [];
+  for await (const c of complete({ messages: [], allowTools: true })) chunks.push(c);
+  assert.deepEqual(tried, ["groq:qwen", "groq:gpt-oss", "asi:asi1"]);
+  const last = chunks.at(-1)!;
+  assert.equal(last.type === "message" ? last.model : "", "asi1");
+});
+
+test("search routing: Firecrawl reads named sites live, and each provider covers for the other", async () => {
+  const calls: string[] = [];
+  const hit = (name: string) => [{ url: `https://${name}.example`, title: name, published: null, text: name }];
+  const exa: Search = async (a) => (calls.push("exa"), a.query === "exa-down" ? Promise.reject(new Error("503")) : hit("exa"));
+  const fc: Search = async (a) => (calls.push("firecrawl"), a.query === "nothing" ? [] : hit("firecrawl"));
+  const search = webSearch(exa, fc);
+  assert.equal((await search({ query: "neon pricing", fresh: true, domains: ["neon.com"] }))[0].title, "firecrawl");
+  assert.equal((await search({ query: "neon news" }))[0].title, "exa");
+  assert.equal((await search({ query: "exa-down" }))[0].title, "firecrawl");
+  assert.equal((await search({ query: "nothing", fresh: true, domains: ["x.com"] }))[0].title, "exa");
+  assert.deepEqual(calls, ["firecrawl", "exa", "exa", "firecrawl", "firecrawl", "exa"]);
+});
+
+test("excerpt keeps the price lines of a long page, in order, within the budget", () => {
+  const page = ["# Neon pricing", "Our story and mission.", "| Plan | Price |", "|---|---|", "| Launch | $19/month, $0.106 per CU-hour |", "Careers at Neon", "| Scale | $69/month |", "Contact sales", "![logo](x.png) [Docs](https://neon.com/docs)"].join("\n");
+  const out = excerpt(page, "Neon pricing plans", 200, ["neon", "com"]);
+  assert.match(out, /Launch \$19\/month.*Scale \$69\/month/);
+  assert.doesNotMatch(out, /Careers|logo|https:/);
+  assert.ok(out.length <= 200);
 });

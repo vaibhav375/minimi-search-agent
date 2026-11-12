@@ -92,12 +92,22 @@ the free instance doesn't fall asleep between visitors.
 ## Tests
 
 ```bash
-npm test          # 18 tests: date resolution, recall, memory search, visitor isolation, the agent loop, rate-limit fallback
+npm test          # 23 tests: date resolution, recall, memory search, visitor isolation, the agent loop, rate-limit fallback
 npm run typecheck
 npm run eval      # end-to-end: real model and search on 12 scripted questions; writes eval/results.md
 ```
 
 The tests use a fake model and fake search, so they need no keys and make no network calls.
+
+## Optional extras
+
+All optional; the agent runs without them.
+
+| Key | What it adds |
+|---|---|
+| `FIRECRAWL_API_KEY` | When the agent re-checks a vendor's own page (a pricing page, say), Firecrawl loads it live in a real browser, so pages built by JavaScript or edited in place are read as they are now. It also takes over a search when Exa fails or finds nothing. |
+| `ASI_API_KEY` | ASI:One as a third model, used only when both Groq models have failed or hit their limits. |
+| `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` | A durable copy of the history, for hosts that wipe the disk on restart. |
 
 ## Free-tier limits
 
@@ -114,8 +124,8 @@ the waits.
 | `src/agent.ts` | One chat turn: recall, then the model and search loop, then the cited answer is saved |
 | `src/recall.ts` | Resolves dates like "last Tuesday" and builds the memory block for the model |
 | `src/store.ts` | SQLite storage: dated transcripts, sources, full-text index |
-| `src/search.ts` | The web search tool (Exa) |
-| `src/llm.ts` | OpenAI-compatible model client with rate-limit fallback |
+| `src/search.ts` | The web search tool: Exa, plus Firecrawl for live page reads and as a fallback |
+| `src/llm.ts` | Model client: a chain of OpenAI-compatible models (Groq, then optionally ASI:One) |
 | `src/prompt.ts` | System prompt and tool definition |
 | `src/server.ts` | HTTP server and streaming chat endpoint |
 | `src/demo.ts`, `demo/history.json` | Sample history a visitor can load |

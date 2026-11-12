@@ -122,6 +122,13 @@ if (process.env.TURSO_DATABASE_URL && process.env.TURSO_AUTH_TOKEN) {
   try {
     console.log(`Restored ${await mirror.restoreInto(deps.store)} conversations from Turso`);
     deps.store.mirrorTo(mirror.push);
+    // Hosts stop the old server on every deploy; send any writes still queued before exiting.
+    for (const signal of ["SIGTERM", "SIGINT"] as const) {
+      process.once(signal, async () => {
+        await mirror.flush();
+        process.exit(0);
+      });
+    }
   } catch (err) {
     console.error(`Turso unavailable, running without a durable copy: ${(err as Error).message}`);
   }
@@ -129,5 +136,6 @@ if (process.env.TURSO_DATABASE_URL && process.env.TURSO_AUTH_TOKEN) {
 
 // Local runs listen on this machine only; a host sets HOST=0.0.0.0 to accept outside traffic.
 server.listen(env.port, process.env.HOST || "127.0.0.1", () => {
-  console.log(`Chat agent running at http://localhost:${env.port}  (model ${env.model}, fallback ${env.fallbackModel || "none"})`);
+  const models = [env.model, env.fallbackModel, env.asi && `${env.asi.model} (ASI:One)`].filter(Boolean).join(" → ");
+  console.log(`Chat agent running at http://localhost:${env.port}  (models: ${models}; search: Exa${env.firecrawlKey ? " + Firecrawl" : ""})`);
 });

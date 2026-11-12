@@ -42,9 +42,22 @@ export function tursoMirror(url: string, token: string) {
     });
   }
 
-  // Writes go out one at a time, in order; a failure is logged and does not block the next one.
-  // ponytail: a write that fails while Turso is unreachable is not retried; add a retry queue if that matters.
-  let queue: Promise<unknown> = Promise.resolve();
+  // Writes made in the same tick (a whole turn's rows) go out together in one request, in order.
+  // ponytail: a batch that fails while Turso is unreachable is logged, not retried; add a retry queue if that matters.
+  let pending: { sql: string; args: Value[] }[] = [];
+  let sending: Promise<void> | null = null;
+  async function drain() {
+    while (pending.length) {
+      const batch = pending;
+      pending = [];
+      try {
+        await run(batch);
+      } catch (err) {
+        console.error(`Turso copy failed for ${batch.length} writes: ${(err as Error).message}`);
+      }
+    }
+    sending = null;
+  }
 
   return {
     // Creates the tables if needed and copies everything into the (empty) local store.
@@ -59,7 +72,12 @@ export function tursoMirror(url: string, token: string) {
       return conversations.length;
     },
     push(sql: string, args: Value[]) {
-      queue = queue.then(() => run([{ sql, args }])).catch((err: Error) => console.error(`Turso copy failed: ${err.message}`));
+      pending.push({ sql, args });
+      sending ??= Promise.resolve().then(drain); // start after the current synchronous writes, so they batch
+    },
+    // Resolves once every write so far has been sent (used before the process exits).
+    async flush() {
+      while (sending) await sending;
     },
   };
 }

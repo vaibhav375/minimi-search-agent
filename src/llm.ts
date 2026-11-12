@@ -23,27 +23,47 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // tools are off), mid-stream and without an HTTP status. It is a sampling glitch, so it is retried.
 const BAD_TOOL_CALL = /tool_use_failed|tool call validation|tool choice is none/i;
 
+interface Route {
+  id: string;
+  model: string;
+  client: Pick<OpenAI, "chat">;
+}
+
+// The main model, then a fallback on the same host, then any extra hosts (for example ASI:One).
+// A rate-limited route is parked until its limit resets (remembered across turns); any other failure
+// before text has been shown moves this call on to the next route.
 export function openAICompatible(cfg: {
   baseURL: string;
   apiKey: string;
   model: string;
   fallbackModel?: string;
+  extra?: { baseURL: string; apiKey: string; model: string; client?: Pick<OpenAI, "chat"> }[];
   client?: Pick<OpenAI, "chat">; // injectable for tests
 }): Complete {
-  const client = cfg.client ?? new OpenAI({ baseURL: cfg.baseURL, apiKey: cfg.apiKey, maxRetries: 0, timeout: 60_000 });
-  const models = [cfg.model, ...(cfg.fallbackModel && cfg.fallbackModel !== cfg.model ? [cfg.fallbackModel] : [])];
-  const parkedUntil = new Map<string, number>(); // model -> when its rate limit resets (shared by all turns)
+  const make = (baseURL: string, apiKey: string) => new OpenAI({ baseURL, apiKey, maxRetries: 0, timeout: 60_000 });
+  const main = cfg.client ?? make(cfg.baseURL, cfg.apiKey);
+  const routes: Route[] = [
+    { id: `${cfg.baseURL} ${cfg.model}`, model: cfg.model, client: main },
+    ...(cfg.fallbackModel && cfg.fallbackModel !== cfg.model ? [{ id: `${cfg.baseURL} ${cfg.fallbackModel}`, model: cfg.fallbackModel, client: main }] : []),
+    ...(cfg.extra ?? []).map((e) => ({ id: `${e.baseURL} ${e.model}`, model: e.model, client: e.client ?? make(e.baseURL, e.apiKey) })),
+  ];
+  const parkedUntil = new Map<string, number>(); // route -> when its rate limit resets
 
   return async function* complete({ messages, allowTools }) {
-    const avoid = new Set<string>(); // models that produced a malformed tool call during this call
+    const failed = new Set<string>(); // routes that errored during this call
     let badToolCalls = 0;
     let serverErrors = 0;
+    let lastError: unknown;
 
     while (true) {
-      const usable = avoid.size < models.length ? models.filter((m) => !avoid.has(m)) : models;
-      const model = usable.find((m) => (parkedUntil.get(m) ?? 0) <= Date.now());
-      if (!model) {
-        const wait = Math.min(...usable.map((m) => parkedUntil.get(m)!)) - Date.now();
+      const usable = routes.filter((r) => !failed.has(r.id));
+      if (!usable.length) {
+        if (lastError instanceof OpenAI.AuthenticationError) throw new FriendlyError("A model API key was rejected. Check the keys in .env.");
+        throw lastError;
+      }
+      const route = usable.find((r) => (parkedUntil.get(r.id) ?? 0) <= Date.now());
+      if (!route) {
+        const wait = Math.min(...usable.map((r) => parkedUntil.get(r.id)!)) - Date.now();
         if (wait > MAX_WAIT_MS) throw new FriendlyError("The free model tier is rate-limited right now. Please try again in a minute.");
         if (wait >= 3000) yield { type: "status", text: `Free-tier limit reached, waiting ${Math.ceil(wait / 1000)}s` };
         await sleep(wait);
@@ -52,8 +72,8 @@ export function openAICompatible(cfg: {
 
       let streamedText = false;
       try {
-        const stream = client.chat.completions.stream({
-          model,
+        const stream = route.client.chat.completions.stream({
+          model: route.model,
           messages,
           // On the last step the tool is withheld entirely: some models call it even under tool_choice "none".
           ...(allowTools ? { tools: [SEARCH_TOOL], tool_choice: "auto" as const } : {}),
@@ -68,29 +88,28 @@ export function openAICompatible(cfg: {
           }
         }
         const final = await stream.finalChatCompletion();
-        yield { type: "message", message: final.choices[0].message, model, tokens: final.usage?.total_tokens ?? 0 };
+        yield { type: "message", message: final.choices[0].message, model: route.model, tokens: final.usage?.total_tokens ?? 0 };
         return;
       } catch (err) {
         if (streamedText) throw err; // never retry once the user has seen part of an answer
+        const othersReady = () => usable.some((r) => r !== route && (parkedUntil.get(r.id) ?? 0) <= Date.now());
         if (err instanceof OpenAI.RateLimitError) {
           const retryAfterS = Number(err.headers?.get("retry-after")) || 20;
-          parkedUntil.set(model, Date.now() + retryAfterS * 1000);
-          if (usable.some((m) => (parkedUntil.get(m) ?? 0) <= Date.now())) {
-            yield { type: "status", text: "Free-tier limit reached, switching model" };
-          }
+          parkedUntil.set(route.id, Date.now() + retryAfterS * 1000);
+          if (othersReady()) yield { type: "status", text: "Free-tier limit reached, switching model" };
           continue;
         }
-        if (err instanceof OpenAI.APIError && BAD_TOOL_CALL.test(err.message) && badToolCalls < 2) {
-          if (badToolCalls++ === 1) avoid.add(model); // second glitch in a row: let the other model try
-          continue;
-        }
-        if (err instanceof OpenAI.AuthenticationError) throw new FriendlyError("The model API key was rejected. Check LLM_API_KEY in .env.");
+        // One retry on the same route for a garbled tool call or a server hiccup; after that, move on.
+        if (err instanceof OpenAI.APIError && BAD_TOOL_CALL.test(err.message) && badToolCalls++ === 0) continue;
         const serverSide = err instanceof OpenAI.APIConnectionError || (err instanceof OpenAI.APIError && (err.status ?? 0) >= 500);
         if (serverSide && serverErrors++ === 0) {
           await sleep(1000);
           continue;
         }
-        throw err;
+        console.error(`Model ${route.model} failed: ${(err as Error).message}`);
+        failed.add(route.id);
+        lastError = err;
+        if (othersReady()) yield { type: "status", text: "Model unavailable, switching model" };
       }
     }
   };
