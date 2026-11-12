@@ -65,7 +65,7 @@
     .slab .label { padding: 18px 20px 18px 14px; display: grid; gap: 4px; align-content: center; }
     .slab b { font-size: clamp(18px, 2.1vw, 28px); line-height: 1; }
     .slab small { font-size: 14.5px; line-height: 1.35; color: var(--dim); }
-    .slab:hover .tile svg { transform: translateY(3px); }
+    .slab:hover .tile svg { transform: translateX(4px); }
     .slab .tile svg { transition: transform .25s; }
     .note { margin-top: clamp(28px, 4vw, 56px); color: var(--dim); }
 
@@ -219,9 +219,6 @@
     const api = (path, init = {}) => fetch(path, { ...init, headers: { ...init.headers, "x-visitor": visitor } });
 
     const SAMPLES = [
-      ["Memory", "On Monday we shortlisted 5 CRM tools for a 20-person sales team. Has any of them changed pricing or shipped something big since?"],
-      ["Memory", "Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?"],
-      ["Memory", "What did I ask you on 3 November? Is your answer still correct today?"],
       ["Finance", "What did the US Federal Reserve decide at its most recent meeting, and how did markets react?"],
       ["Tech", "What's new in the latest Node.js release?"],
       ["Art", "Which major art exhibitions are opening in London and New York this month?"],
@@ -232,8 +229,7 @@
       ["Gadgets", "Compare the newest iPhone and Pixel flagships on price and battery life."],
     ];
     const ARROW = `<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="square"><path d="M3 11h15M12.5 5l6 6-6 6"/></svg>`;
-    const DOWN = `<svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="square"><path d="M13 4v16M6 14l7 7 7-7"/></svg>`;
-
+    
     const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
     const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return u; } };
     const stamp = (d) => new Date(d).toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short" }).replace(",", "");
@@ -347,8 +343,7 @@
           <a class="byline mono" href="${REPO}" target="_blank" rel="noopener noreferrer">Built by vaibhav375 · source on GitHub</a>
         </div>
         <div id="demo"></div>
-        ${tries("Ask about your past", (tag) => tag === "Memory")}
-        ${tries("Ask the live web", (tag) => tag !== "Memory")}`;
+        <section class="tries"><h2 class="mono">Try one</h2>${SAMPLES.map(([tag, q], i) => `<button class="try" type="button" data-i="${i}"><span class="tag mono">${tag}</span><span class="q">${esc(q)}</span><span class="go">${ARROW}</span></button>`).join("")}</section>`;
       stage.querySelectorAll(".try").forEach((b) => (b.onclick = () => { input.value = SAMPLES[b.dataset.i][1]; ask(); }));
       fitWordmark();
       toTop();
@@ -358,13 +353,6 @@
         gsap.fromTo(".wordmark span", { "--w": 125, yPercent: 30, opacity: 0 }, { "--w": 62, yPercent: 0, opacity: 1, duration: 1.15, ease: "expo.out", stagger: .05 });
         gsap.from(".tagline, .lede, #demo, .tries", { y: 26, opacity: 0, duration: .8, ease: "power3.out", stagger: .08, delay: .35 });
       }
-    }
-
-    function tries(title, keep) {
-      const rows = SAMPLES.map(([tag, q], i) => [tag, q, i]).filter(([tag]) => keep(tag));
-      return `<section class="tries"><h2 class="mono">${title}</h2>${rows
-        .map(([tag, q, i]) => `<button class="try" type="button" data-i="${i}"><span class="tag mono">${tag}</span><span class="q">${esc(q)}</span><span class="go">${ARROW}</span></button>`)
-        .join("")}</section>`;
     }
 
     // Size the wordmark so its six letters span the full width exactly.
@@ -383,26 +371,30 @@
     addEventListener("resize", fitWordmark);
     document.fonts?.ready.then(fitWordmark);
 
-    // The slab that adds sample history, shown on the landing page until the visitor has it.
-    function demoSlab(hasHistory) {
+    // The history slab on the landing page: opens the Memory tab, loading the sample history first
+    // for a visitor who has none, so the memory features have something to show.
+    function historySlab(hasHistory) {
       const box = $("demo");
       if (!box) return;
-      if (hasHistory) { if (box.querySelector(".slab")) box.innerHTML = ""; return; } // keep the "loaded" note
-      box.innerHTML = `<button class="slab" type="button"><span class="tile">${DOWN}</span><span class="label"><b class="wide">Load sample history</b><small>Three past conversations, dated last Monday, last Tuesday and 3 November, so the memory questions below have something to find.</small></span></button>`;
+      const [title, detail] = hasHistory
+        ? ["Show past history", "Everything you have asked, by day, with filters for words and dates."]
+        : ["Load sample history", "Adds three past conversations, dated last Monday, last Tuesday and 3 November, and opens them in Memory. Then ask what has changed since."];
+      box.innerHTML = `<button class="slab" type="button"><span class="tile">${ARROW}</span><span class="label"><b class="wide">${title}</b><small>${detail}</small></span></button>`;
       box.firstChild.onclick = async () => {
         box.firstChild.disabled = true;
-        const res = await api(`/api/demo?tz=${encodeURIComponent(tz)}`, { method: "POST" });
-        if (!res.ok) { box.innerHTML = `<p class="note mono" style="color:var(--alert)">Could not load the sample history. Try again.</p>`; return; }
-        box.innerHTML = `<p class="note mono">Sample history loaded. Find it under Memory, top right.</p>`;
-        field.ping();
-        checkHistory();
+        if (!hasHistory) {
+          const res = await api(`/api/demo?tz=${encodeURIComponent(tz)}`, { method: "POST" }).catch(() => null);
+          if (!res?.ok) { box.innerHTML = `<p class="note mono" style="color:var(--alert)">Could not load the sample history. Try again.</p>`; return; }
+          field.ping();
+        }
+        location.hash = "memory";
       };
     }
 
     async function checkHistory() {
       let items = [];
       try { items = await (await api("/api/conversations")).json(); } catch {}
-      demoSlab(items.length > 0);
+      historySlab(items.length > 0);
     }
 
     async function openConversation(id) {
