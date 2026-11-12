@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { runTurn, safeTimezone } from "./agent.ts";
 import { loadDeps, env } from "./config.ts";
 import { loadDemoHistory } from "./demo.ts";
+import { searchMemory } from "./recall.ts";
 
 const deps = loadDeps();
 
@@ -96,6 +97,12 @@ const server = createServer(async (req, res) => {
     const match = url.pathname.match(/^\/api\/conversations\/(\d+)$/);
     if (req.method === "GET" && match) return json(res, 200, storeFor(req).messages(Number(match[1])));
     if (req.method === "POST" && url.pathname === "/api/chat") return await chat(req, res);
+    if (req.method === "GET" && url.pathname === "/api/memory") {
+      const p = url.searchParams;
+      const day = (k: string) => (/^\d{4}-\d{2}-\d{2}$/.test(p.get(k) ?? "") ? p.get(k)! : undefined);
+      const timezone = safeTimezone(p.get("tz") ?? undefined);
+      return json(res, 200, searchMemory(storeFor(req), (p.get("q") ?? "").slice(0, 200), { from: day("from"), to: day("to") }, new Date(), timezone, p.get("locale") ?? undefined));
+    }
     if (req.method === "POST" && url.pathname === "/api/demo") {
       const timezone = safeTimezone(url.searchParams.get("tz") ?? undefined);
       return json(res, 200, { added: loadDemoHistory(storeFor(req), new Date(), timezone) });

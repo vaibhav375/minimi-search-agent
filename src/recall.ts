@@ -73,6 +73,16 @@ export function resolveDates(text: string, now: Date, timezone: string, locale =
   return past.length ? past : refs;
 }
 
+// '"last Tuesday" means Tuesday 10 November 2026 or Tuesday 3 November 2026'
+export function describeDates(refs: DateRef[]): string {
+  return refs
+    .map((r) => {
+      const days = r.dates.length > 2 ? `${formatDay(r.dates.at(-1)!)} to ${formatDay(r.dates[0])}` : r.dates.map((d) => formatDay(d)).join(" or ");
+      return `"${r.phrase}" means ${days}`;
+    })
+    .join("; ");
+}
+
 // Phrases that mean "this refers to something we said before". Biased towards firing: a wasted
 // lookup costs milliseconds, a missed one makes the agent claim it has no memory.
 const RECALL_CUE =
@@ -87,7 +97,8 @@ const STOP = new Set(
     "said answer answers correct true changed change changes anything something shipped big new latest again also just like " +
     "monday tuesday wednesday thursday friday saturday sunday january february march april may june july august september october " +
     "november december morning afternoon evening talked discussed shortlisted compared looked chatted mentioned remember earlier " +
-    "previous conversation chat time is it its me my we us of on in at to by a an as or if so up out be been being do i").split(" "),
+    "previous conversation chat time is it its me my we us of on in at to by a an as or if so up out be been being do i " +
+    "mon tue tues wed thu thur thurs fri sat sun jan feb mar apr jun jul aug sep sept oct nov dec").split(" "),
 );
 
 export function keywords(text: string): string[] {
@@ -128,12 +139,7 @@ export function recall(store: Store, text: string, now: Date, timezone: string, 
 
   const terms = keywords(text);
   const allDates = [...new Set(refs.flatMap((r) => r.dates))];
-  const resolved = refs
-    .map((r) => {
-      const days = r.dates.length > 2 ? `${formatDay(r.dates.at(-1)!)} to ${formatDay(r.dates[0])}` : r.dates.map((d) => formatDay(d)).join(" or ");
-      return `"${r.phrase}" means ${days}`;
-    })
-    .join("; ");
+  const resolved = describeDates(refs);
 
   let hits = allDates.length ? store.conversationsOnDates(allDates, excludeConversationId) : store.searchConversations(terms, excludeConversationId);
   let note = "";
@@ -179,4 +185,20 @@ export function recall(store: Store, text: string, now: Date, timezone: string, 
     : "";
 
   return { status, shortStatus, block: ["<memory>", `Lookup: ${status}`, ...(sinceLine ? [sinceLine] : []), ...conversations, "</memory>"].join("\n") };
+}
+
+// The Memory tab's search: one box that takes keywords and date phrases together ("last Tuesday postgres").
+// Dates go through the same resolver the agent uses, and the reply says how they were read.
+export function searchMemory(
+  store: Store,
+  query: string,
+  range: { from?: string; to?: string },
+  now: Date,
+  timezone: string,
+  locale?: string,
+) {
+  const refs = query.trim() ? resolveDates(query, now, timezone, locale) : [];
+  const terms = keywords(query);
+  const dates = [...new Set(refs.flatMap((r) => r.dates))];
+  return { interpreted: refs.length ? describeDates(refs) : null, terms, items: store.browse({ ...range, dates, terms }) };
 }

@@ -101,3 +101,19 @@ test("visitors cannot list, open or recall each other's conversations", async ()
   assert.match(recall(alice, "On Monday we shortlisted 5 CRM tools", NOW, TZ)!.block, /CRM/);
   assert.match(recall(alice, "Last Tuesday I asked you about Postgres hosting", NOW, TZ)!.block, /Postgres/);
 });
+
+test("memory search: keywords, date phrases and date ranges combine", async () => {
+  const { searchMemory } = await import("../src/recall.ts");
+  const { s } = seeded();
+  const titles = (r: { items: { title: string }[] }) => r.items.map((i) => i.title);
+  assert.equal(searchMemory(s, "", {}, NOW, TZ).items.length, 3);
+  assert.deepEqual(titles(searchMemory(s, "postg", {}, NOW, TZ)), ["Cheapest Postgres hosting"]); // prefix match while typing
+  const lastTue = searchMemory(s, "last Tuesday", {}, NOW, TZ);
+  assert.match(lastTue.interpreted!, /Tuesday 10 November 2026 or Tuesday 3 November 2026/);
+  assert.deepEqual(titles(lastTue).sort(), ["Cheapest Postgres hosting", "Weather"]);
+  assert.deepEqual(titles(searchMemory(s, "last Tuesday rain", {}, NOW, TZ)), ["Weather"]);
+  assert.deepEqual(titles(searchMemory(s, "", { from: "2026-11-09", to: "2026-11-12" }, NOW, TZ)).sort(), ["CRM shortlist", "Weather"]);
+  const [pg] = searchMemory(s, "postgres", {}, NOW, TZ).items;
+  assert.equal(pg.preview, "Neon's free plan is cheapest.");
+  assert.deepEqual([pg.sources, pg.questions, pg.domains], [1, 1, ["neon.com"]]);
+});

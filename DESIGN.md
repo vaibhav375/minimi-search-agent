@@ -39,6 +39,8 @@ Each message runs one turn (`src/agent.ts`):
   fallback.
 - **Small stack.** The OpenAI SDK against any compatible host, `node:http` with Server-Sent Events,
   built-in `node:sqlite` (no native build), one HTML file (GSAP and Lenis for motion).
+- **Memory you can see.** The Memory tab searches the same store with the same date resolver, and
+  shows how a phrase like "last Tuesday" was read, so what the agent recalls is never a black box.
 - **Safe to put online.** Each browser's history is filed under its own random id, a per-address
   daily cap protects the free quotas, and visitors can load a sample history so the memory
   questions work on a fresh public instance.

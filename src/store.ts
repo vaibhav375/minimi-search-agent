@@ -33,6 +33,29 @@ export interface ConversationSummary {
   lastAt: string;
 }
 
+export interface MemoryItem {
+  id: number;
+  title: string;
+  createdAt: string;
+  lastAt: string;
+  questions: number;
+  preview: string; // the start of the first answer, as plain text
+  sources: number;
+  domains: string[];
+}
+
+// Plain-text opening of an answer for a list preview: tables, markdown marks and citations removed.
+function previewOf(markdown: string): string {
+  return markdown
+    .split("\n")
+    .filter((l) => l.trim() && !/^\s*\|/.test(l))
+    .join(" ")
+    .replace(/\s?\[\d+\]|[*_#>`\\]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^(.{200}\S*)\s.*$/s, "$1…"); // cut at a word, roughly two lines' worth
+}
+
 export interface ConversationHit {
   id: number;
   title: string;
@@ -151,6 +174,45 @@ export class Store {
       .all(conversationId, this.visitor, limit) as unknown as Omit<StoredMessage, "sources">[];
     const sourcesOf = this.db.prepare("SELECT n, url, title, published, query FROM sources WHERE message_id = ? ORDER BY n");
     return rows.map((r) => ({ ...r, sources: sourcesOf.all(r.id) as unknown as Source[] }));
+  }
+
+  // The Memory tab: this visitor's conversations, newest first, optionally limited to local dates (a list
+  // and/or a range) and to keywords (all must match, prefix matching so it works while typing).
+  browse(f: { dates?: string[]; from?: string; to?: string; terms?: string[] } = {}, limit = 200): MemoryItem[] {
+    const where = ["c.visitor = ?"];
+    const args: (string | number)[] = [this.visitor];
+    if (f.dates?.length) {
+      where.push(`m.local_date IN (${f.dates.map(() => "?").join(",")})`);
+      args.push(...f.dates);
+    }
+    if (f.from) where.push("m.local_date >= ?"), args.push(f.from);
+    if (f.to) where.push("m.local_date <= ?"), args.push(f.to);
+    if (f.terms?.length) {
+      where.push("m.id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)");
+      args.push(f.terms.map((t) => `"${t.replaceAll('"', "")}"*`).join(" "));
+    }
+    const rows = this.db
+      .prepare(
+        `SELECT c.id, c.title, c.created_at AS createdAt, MAX(m.created_at) AS lastAt
+         FROM conversations c JOIN messages m ON m.conversation_id = c.id
+         WHERE ${where.join(" AND ")}
+         GROUP BY c.id ORDER BY c.created_at DESC LIMIT ?`,
+      )
+      .all(...args, limit) as { id: number; title: string; createdAt: string; lastAt: string }[];
+    const counts = this.db.prepare("SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND role = 'user'");
+    const firstAnswer = this.db.prepare("SELECT content FROM messages WHERE conversation_id = ? AND role = 'assistant' ORDER BY id LIMIT 1");
+    const urls = this.db.prepare("SELECT DISTINCT s.url FROM sources s JOIN messages m ON m.id = s.message_id WHERE m.conversation_id = ?");
+    return rows.map((r) => {
+      const links = (urls.all(r.id) as { url: string }[]).map((u) => u.url);
+      const domains = [...new Set(links.map((u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } }).filter(Boolean))];
+      return {
+        ...r,
+        questions: (counts.get(r.id) as { n: number }).n,
+        preview: previewOf((firstAnswer.get(r.id) as { content: string } | undefined)?.content ?? ""),
+        sources: links.length,
+        domains: domains.slice(0, 4),
+      };
+    });
   }
 
   // Conversations with at least one message on any of the given local dates.

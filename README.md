@@ -47,6 +47,13 @@ Then ask, for example:
 - "Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?"
 - "What did I ask you on 3 November? Is your answer still correct today?"
 
+## The Memory tab
+
+Everything you have asked, grouped by day, with each conversation's sources. One search box takes
+keywords and date phrases together: "last Tuesday postgres" reads the date the same way the agent
+does, says how it read it, and shows the matching conversations with the words highlighted. Chips
+filter to today, this week, last week or this month, or pick a single day.
+
 ## Deploy
 
 The repo includes a [Render](https://render.com) blueprint (`render.yaml`) for its free plan:
@@ -64,7 +71,7 @@ service restarts, so history there is temporary.
 ## Tests
 
 ```bash
-npm test          # 15 tests: date resolution, recall, visitor isolation, the agent loop, rate-limit fallback
+npm test          # 16 tests: date resolution, recall, memory search, visitor isolation, the agent loop, rate-limit fallback
 npm run typecheck
 ```
 
