@@ -169,8 +169,12 @@
     .mem-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; }
     .mem-title { --lens: var(--paper); margin: 0; color: var(--mark); font-weight: 900; text-transform: uppercase; line-height: .8; letter-spacing: -.012em;
       font-variation-settings: "wdth" var(--w, 62); font-size: clamp(56px, 16vw, 220px); }
-    .mem-link { margin: 14px 0 0; color: var(--dim); text-transform: none; letter-spacing: 0; }
-    .mem-link button { color: var(--mark); text-decoration: underline; text-underline-offset: 3px; }
+    .mem-link { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 16px 0 0; color: var(--dim); text-transform: none; letter-spacing: 0; }
+    .mem-link input { flex: 1 1 280px; min-width: 0; max-width: 560px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+      background: rgba(242, 239, 230, .04); color: var(--paper); font: inherit; }
+    .mem-link input:focus { outline: none; border-color: var(--mark); }
+    .mem-link button { padding: 8px 13px; border-radius: 8px; background: var(--mark); color: var(--ink); white-space: nowrap; }
+    .mem-link small { flex-basis: 100%; font-size: inherit; }
     .mem-count { margin: 0; padding-bottom: 6px; color: var(--dim); text-align: right; }
     .mem-search { display: flex; align-items: center; gap: 14px; margin-top: clamp(22px, 3vw, 40px); border-bottom: 2px solid var(--line); transition: border-color .25s; }
     .mem-search:focus-within { border-color: var(--mark); }
@@ -616,7 +620,12 @@
       $("crumb").textContent = "";
       stage.innerHTML = `
         <div class="mem-head"><h1 class="mem-title">Memory</h1><p class="mem-count mono" id="memCount"></p></div>
-        <p class="mem-link mono">This history belongs to this browser. <button type="button" id="copyLink">Copy a link to open it on another device</button></p>
+        <div class="mem-link mono">
+          <span>Open this history on another device:</span>
+          <input id="historyLink" readonly aria-label="Link to this history" />
+          <button type="button" id="copyLink">Copy link</button>
+          <small>It is a private link, not a login: anyone who has it can see this history.</small>
+        </div>
         <label class="mem-search">${SEARCH_ICON}<input id="memQ" type="search" autocomplete="off" spellcheck="false" placeholder='Search words or dates, like "last Tuesday postgres"' aria-label="Search your conversations" /></label>
         <div class="chips mono" role="group" aria-label="Filter by date">
           ${PRESETS.map(([key, label]) => `<button class="chip" type="button" data-p="${key}">${label}</button>`).join("")}
@@ -630,14 +639,20 @@
       q.oninput = () => { clearTimeout(timer); timer = setTimeout(() => { mem.q = q.value; loadMemory(); }, 160); };
       stage.querySelectorAll("[data-p]").forEach((b) => (b.onclick = () => { mem.preset = b.dataset.p; mem.day = ""; dayInput.value = ""; loadMemory(); }));
       dayInput.onchange = () => { mem.day = dayInput.value; loadMemory(); };
-      $("copyLink").onclick = async () => {
-        const link = `${location.origin}/?history=${encodeURIComponent(visitor)}`;
-        try {
-          await navigator.clipboard.writeText(link);
-          $("copyLink").textContent = "Link copied. Anyone with it can see this history.";
-        } catch {
-          prompt("Copy this link to open your history on another device:", link);
+      // The link is shown in a box as well, so it can be copied by hand where a browser blocks copying.
+      const linkBox = $("historyLink"), copyButton = $("copyLink");
+      linkBox.value = `${location.origin}/?history=${encodeURIComponent(visitor)}`;
+      linkBox.onfocus = () => linkBox.select();
+      copyButton.onclick = async () => {
+        linkBox.focus();
+        linkBox.select();
+        let copied = false;
+        try { copied = document.execCommand("copy"); } catch {} // works in most browsers, inside the click
+        if (!copied) {
+          try { await navigator.clipboard.writeText(linkBox.value); copied = true; } catch {}
         }
+        copyButton.textContent = copied ? "Copied" : "Press ⌘C or Ctrl+C";
+        setTimeout(() => (copyButton.textContent = "Copy link"), 2500);
       };
       toTop();
       loadMemory(true);
