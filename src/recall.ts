@@ -204,3 +204,40 @@ export function searchMemory(
   const dates = [...new Set(refs.flatMap((r) => r.dates))];
   return { interpreted: refs.length ? describeDates(refs) : null, terms, items: store.browse({ ...range, dates, terms }) };
 }
+
+// The landing page greeting. A returning visitor gets their last question back and up to three
+// "has anything changed?" follow-ups built from their own past chats, worded so the recall above
+// finds the chat by its date. Plain code, no model call: it has to render as the page loads.
+export interface Welcome {
+  returning: boolean;
+  last?: { question: string; when: string }; // when: "earlier today", "yesterday" or "on Tue 10 Nov"
+  followUps: { day: string; title: string; question: string }[];
+}
+
+const shorten = (q: string, max = 72) => (q.length > max ? q.slice(0, max).replace(/[\s,:;]+\S*$/, "") + "…" : q);
+const SCAN = 12; // recent conversations considered; follow-ups only need the newest few
+const MAX_FOLLOW_UPS = 3;
+
+export function welcome(store: Store, now: Date, timezone: string): Welcome {
+  const today = localDate(now, timezone);
+  const recent = store.listConversations().slice(0, SCAN).map((c) => {
+    const first = store.messages(c.id).find((m) => m.role === "user");
+    return first && { title: shorten(first.content.trim()), question: first.content.trim(), date: first.localDate };
+  }).filter((c) => !!c);
+  if (!recent.length) return { returning: false, followUps: [] };
+  // the newest real topic: a follow-up ("On 9 November I asked you …") would only quote itself back
+  const latest = recent.find((c) => !isRecall(c.question));
+  if (!latest) return { returning: true, followUps: [] };
+  const when = latest.date === today ? "earlier today" : latest.date === addDays(today, -1) ? "yesterday" : `on ${formatDay(latest.date, "short")}`;
+  const seen = new Set<string>();
+  const followUps = recent
+    // a chat from today has nothing to have changed yet; a recall question would only point at another chat
+    .filter((c) => c.date < today && !isRecall(c.question) && !seen.has(c.question) && seen.add(c.question))
+    .slice(0, MAX_FOLLOW_UPS)
+    .map((c) => {
+      const day = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "numeric", month: "long", ...(c.date.slice(0, 4) !== today.slice(0, 4) ? { year: "numeric" } : {}) })
+        .format(new Date(c.date + "T00:00:00Z"));
+      return { day: formatDay(c.date, "short"), title: c.title, question: `On ${day} I asked you: "${c.question}" Has anything changed since then?` };
+    });
+  return { returning: true, last: { question: latest.title, when }, followUps };
+}

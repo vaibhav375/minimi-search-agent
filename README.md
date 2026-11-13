@@ -69,6 +69,15 @@ filter to today, this week, last week or this month, or pick a single day.
 
 ![The Memory tab filtered by "last Tuesday postgres"](docs/memory.jpg)
 
+## Welcome back
+
+The start page greets a first-time visitor and suggests everyday questions: furniture prices, flight
+fares, used-car prices, sport, finance. A returning visitor is welcomed back with the last thing they
+asked, and their own past chats come back as suggestions ("Has anything changed since you asked …?"),
+worded so the agent finds the old chat by its date. These are built in code from the stored history,
+with no model call (`welcome()` in `src/recall.ts`). There is no login: a visitor can add a first name,
+which stays in their browser and never reaches the server.
+
 ## Deploy
 
 The repo includes a [Render](https://render.com) blueprint (`render.yaml`) for its free plan:
