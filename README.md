@@ -1,16 +1,34 @@
 # Recall
 
+**A web-search chat agent with a memory.** Ask it anything and it answers from the live web, citing
+every fact. Come back later and ask "What did I ask you on 3 November? Is your answer still correct
+today?": it finds that conversation by its date and re-checks it against the web.
+
 **Live demo: https://recall-search-agent.onrender.com** (free hosting, so the first visit after a
 quiet spell can take a few seconds)
 
 ![Recall start page](docs/landing.jpg)
 
-A chat agent with one tool, web search. It answers fast, cites every fact, and remembers what you
-talked about and when, so it can answer "What did I ask you on 3 November? Is your answer still
-correct today?" by finding that conversation and re-checking it against the live web.
+- **One tool, web search.** The model plans its own searches and runs them in parallel; every
+  answer cites numbered sources, and citations that point at nothing are removed.
+- **Memory by date, in code.** "Last Tuesday" is resolved to real dates in your time zone and the
+  matching chat is pulled from SQLite before the model runs, so the model never guesses.
+- **Re-checks what changed.** Pricing pages are re-read live, since an edit doesn't change a page's
+  publish date, and each item is reported as changed or unchanged.
+- **Free and open.** Qwen3.8 27B on Groq, with gpt-oss-120b and ASI:One as automatic backups.
 
-It runs entirely on free tiers: an open-weight model (Qwen3.8 27B) on Groq and Exa for search.
-How it works and why is in [DESIGN.md](DESIGN.md).
+## How it works
+
+![One question, end to end: recall in code, then the model with its one tool, then a cited answer saved with its date](docs/how-turn.png)
+
+1. **Recall, in code.** If the question refers to the past, `src/recall.ts` resolves its dates and
+   pulls the matching conversation, with what was said then and its sources.
+2. **Model and web search.** One model, one tool. It fans out searches in parallel (Exa for index
+   search, Firecrawl to read a named page live), capped at 3 model calls and 10 searches.
+3. **Cited answer.** Every claim cites a source; the answer is saved with its date for next time.
+
+The design choices, the alternatives rejected, and more diagrams (how "last Tuesday" is found, the
+search loop, the model chain) are in **[DESIGN.md](DESIGN.md)**.
 
 ## Run it
 
@@ -94,7 +112,7 @@ the free instance doesn't fall asleep between visitors.
 ## Tests
 
 ```bash
-npm test          # 23 tests: date resolution, recall, memory search, visitor isolation, the agent loop, rate-limit fallback
+npm test          # 24 tests: date resolution, recall, memory search, visitor isolation, the agent loop, rate-limit fallback
 npm run typecheck
 npm run eval      # end-to-end: real model and search on 12 scripted questions; writes eval/results.md
 ```
@@ -136,3 +154,4 @@ the waits.
 | `src/mirror.ts` | Optional durable copy of the history in Turso |
 | `scripts/eval.ts`, `eval/results.md` | End-to-end eval and its latest results |
 | `render.yaml` | Render deployment blueprint |
+| `docs/diagrams/diagrams.html` | Source of the diagrams in `docs/` |

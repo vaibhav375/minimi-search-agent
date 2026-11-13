@@ -6,14 +6,9 @@ each vendor's pricing page, and says what changed, citing every line. The model 
 tool, web search; memory is plain code that runs before it. Live at
 **https://recall-search-agent.onrender.com**.
 
-## How it works
+![One question, end to end: recall in code, then the model with its one tool, then a cited answer saved with its date](docs/how-turn.png)
 
-```
-question
-  → recall, in code: resolve the dates, pull matching chats from SQLite
-  → model ⇄ web_search: at most 2 rounds and 10 searches, run in parallel
-  → answer citing [n] sources → saved with its date
-```
+## How it works
 
 Each message runs one turn (`src/agent.ts`):
 
@@ -29,6 +24,10 @@ Each message runs one turn (`src/agent.ts`):
 3. **Grounded answer.** Sources are numbered across the turn and the model cites `[n]`; numbers that
    match no source are dropped. The question is saved before the model runs, so a failed answer
    still leaves it in history; the answer and its cited sources are saved after.
+
+![How "last Tuesday" is found: a cue phrase, two candidate dates, the chat ranked by topic, and the memory block the model receives](docs/how-recall.png)
+
+![The search loop: the first call fans out searches in parallel, an optional second round, and a final call with tools withheld](docs/how-loop.png)
 
 ## Why this way
 
@@ -61,6 +60,8 @@ Each message runs one turn (`src/agent.ts`):
   shapes, an honest "no conversation that day", live-web lookups, and questions that must not search.
   The checks are deterministic. The last full run passed 11 of 12 cases (47 of 48 checks); the one
   miss, an answer that did not restate the recalled date, passed on a rerun. See `eval/results.md`.
+
+![The model chain: Qwen3.8 27B, then gpt-oss-120b, then ASI:One, and what happens on each kind of failure](docs/how-models.png)
 
 ## Considered and rejected
 
