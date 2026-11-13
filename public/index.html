@@ -272,14 +272,16 @@
     const api = (path, init = {}) => fetch(path, { ...init, headers: { ...init.headers, "x-visitor": visitor } });
 
     const SAMPLES = [
+      ["Home", "How much does an IKEA Kallax shelf unit cost right now?"],
+      ["Flights", "What do London to Lisbon return flights typically cost next month, and when is it cheapest to book?"],
       ["Finance", "What did the US Federal Reserve decide at its most recent meeting, and how did markets react?"],
-      ["Tech", "What's new in the latest Node.js release?"],
-      ["Art", "Which major art exhibitions are opening in London and New York this month?"],
-      ["Science", "What has NASA announced about its Artemis missions recently?"],
+      ["Cars", "Is a used Tesla Model 3 cheaper now than it was a year ago?"],
       ["Sport", "Who won the most recent Formula 1 race, and how does the championship stand?"],
-      ["Travel", "What do UK citizens need to visit Japan right now: visa, passport rules, entry forms?"],
-      ["Film", "What are the highest-grossing films of the year so far?"],
+      ["Energy", "What is the UK energy price cap right now, and when does it change next?"],
       ["Gadgets", "Compare the newest iPhone and Pixel flagships on price and battery life."],
+      ["Food", "Have supermarket food prices in the UK gone up or down this month?"],
+      ["Film", "What are the highest-grossing films of the year so far?"],
+      ["Tech", "What's new in the latest Node.js release?"],
     ];
     const ARROW = `<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="square"><path d="M3 11h15M12.5 5l6 6-6 6"/></svg>`;
     
