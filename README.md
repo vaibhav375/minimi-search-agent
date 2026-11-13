@@ -78,8 +78,10 @@ The repo includes a [Render](https://render.com) blueprint (`render.yaml`) for i
 
 Any Node host works: run `npm install`, then `npm start` with `HOST=0.0.0.0` and the two keys set.
 
-On a public deployment each browser gets a random id and sees only its own history (it is not a
-login: anyone with the id could read that history). Each address is limited to 60 questions a day so
+On a public deployment each browser gets a random id and sees only its own history. To use the same
+history on another browser or device, open the Memory tab and copy its history link; opening that link
+switches the other browser to the same history. It is a private link, not a login: anyone with it can
+read that history. Each address is limited to 60 questions a day so
 a public demo cannot drain the free API quotas.
 
 Render's free plan wipes the disk on every restart. To keep history, create a free database at

@@ -14,6 +14,17 @@ test("the three sample questions resolve to the right days", () => {
   assert.deepEqual(dates("On Monday we shortlisted 5 CRM tools for a 20-person sales team. Has any of them changed pricing or shipped something big since?"), ["2026-11-09"]);
 });
 
+test("bare weekdays step back by weeks whichever day of the week it is", () => {
+  // Friday 13 Nov: the nearest Monday is the 16th (ahead), the one meant is the 9th.
+  const friday = new Date("2026-11-13T10:00:00Z");
+  assert.deepEqual(dates("On Monday we shortlisted 5 CRM tools", friday), ["2026-11-09"]);
+  assert.deepEqual(dates("Last Tuesday I asked you about Postgres", friday), ["2026-11-10", "2026-11-03"]);
+  // Sunday 15 Nov and Monday 16 Nov.
+  assert.deepEqual(dates("on Monday", new Date("2026-11-15T10:00:00Z")), ["2026-11-09"]);
+  assert.deepEqual(dates("on Monday", new Date("2026-11-16T10:00:00Z")), ["2026-11-09"]);
+  assert.deepEqual(dates("on Saturday", new Date("2026-11-16T10:00:00Z")), ["2026-11-14"]);
+});
+
 test("relative and partial dates resolve to the past", () => {
   assert.deepEqual(dates("yesterday"), ["2026-11-11"]);
   assert.deepEqual(dates("what did we talk about last week"), ["2026-11-08", "2026-11-07", "2026-11-06", "2026-11-05", "2026-11-04", "2026-11-03", "2026-11-02"]);

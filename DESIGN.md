@@ -66,8 +66,8 @@ Each message runs one turn (`src/agent.ts`):
 
 Recall needs a date or a cue phrase. Citations are prompt-based, so a wrong-but-existing source
 number gets through. Only the last ten messages of a chat are sent. The eval checks behaviour, not
-whether every fact is right. Quick-fire questions can wait up to a minute on the free tier. Visitor
-ids separate histories but are not logins.
+whether every fact is right. Quick-fire questions can wait up to a minute on the free tier. History
+belongs to a browser (shareable to another device by link), not to an account.
 
 ## With another week
 

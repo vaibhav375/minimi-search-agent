@@ -45,14 +45,16 @@ export function resolveDates(text: string, now: Date, timezone: string, locale =
   const refs: DateRef[] = [];
   for (const r of parser.parse(text, wallClock(now, timezone), { forwardDate: false })) {
     const phrase = r.text;
-    let base = ymd(r.start.date());
+    const parsed = ymd(r.start.date());
+    // A date still ahead this year ("on 20 November" said on the 12th) means last year's. Not for bare
+    // weekdays: the parser may pick next week's Monday, which steps back by weeks, not a year.
     const yearGiven = r.start.isCertain("year");
-    if (!yearGiven && base > today) base = String(Number(base.slice(0, 4)) - 1) + base.slice(4);
+    const base = !yearGiven && parsed > today ? String(Number(parsed.slice(0, 4)) - 1) + parsed.slice(4) : parsed;
 
     let dates: string[];
     if (r.start.isCertain("weekday") && !r.start.isCertain("day")) {
-      let d = base >= today ? addDays(base, -7) : base;
-      if (d > today) d = addDays(d, -7);
+      let d = parsed;
+      while (d >= today) d = addDays(d, -7); // the most recent one before today
       dates = [d];
       const weekStart = addDays(today, -weekdayMon0(today));
       if (/\blast\b/i.test(phrase) && d >= weekStart) dates.push(addDays(d, -7));

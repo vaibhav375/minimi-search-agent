@@ -17,6 +17,7 @@ const STATIC: Record<string, [string, string]> = {
   "/vendor/purify.js": ["node_modules/dompurify/dist/purify.es.mjs", "text/javascript"],
   "/vendor/gsap.js": ["node_modules/gsap/dist/gsap.min.js", "text/javascript"],
   "/vendor/lenis.js": ["node_modules/lenis/dist/lenis.min.js", "text/javascript"],
+  "/favicon.svg": ["public/favicon.svg", "image/svg+xml"],
 };
 
 function json(res: ServerResponse, status: number, body: unknown) {

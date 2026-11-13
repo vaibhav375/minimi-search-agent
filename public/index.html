@@ -6,6 +6,8 @@
   <meta name="color-scheme" content="dark" />
   <meta name="description" content="A web-search agent that cites its sources and remembers what you asked, and when." />
   <title>Recall: search with a memory</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <meta name="theme-color" content="#0c0b09" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=Martian+Mono:wght@400;600&display=swap" />
@@ -18,13 +20,13 @@
       --mono: "Martian Mono", ui-monospace, "SF Mono", Menlo, monospace;
       --gutter: clamp(16px, 3.4vw, 44px);
       --measure: 780px;
+      --expo: cubic-bezier(.19, 1, .22, 1);
     }
     * { box-sizing: border-box; }
     html, body { height: 100%; }
     body {
       margin: 0; background: var(--ink); color: var(--paper); font-family: var(--sans); font-size: 16.5px; line-height: 1.62;
       font-variation-settings: "wdth" 100; -webkit-font-smoothing: antialiased; overflow: hidden;
-      background-image: radial-gradient(70vw 55vh at 88% 112%, rgba(255, 224, 61, .11), transparent 70%);
     }
     ::selection { background: var(--mark); color: var(--ink); }
     :focus-visible { outline: 2px solid var(--paper); outline-offset: 3px; }
@@ -34,11 +36,32 @@
 
     #field { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
 
+    /* Slow-moving glow behind everything: three soft blobs in the accent's warm range drift on long loops. */
+    .aurora { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+    .aurora i { position: absolute; width: 72vmax; height: 72vmax; border-radius: 50%; filter: blur(60px); will-change: transform; }
+    .aurora i:nth-child(1) { left: -26vmax; top: -34vmax; background: radial-gradient(closest-side, rgba(255, 224, 61, .30), transparent); animation: drift-a 22s ease-in-out infinite alternate; }
+    .aurora i:nth-child(2) { right: -30vmax; top: 8vh; background: radial-gradient(closest-side, rgba(255, 140, 46, .20), transparent); animation: drift-b 29s ease-in-out infinite alternate; }
+    .aurora i:nth-child(3) { left: 12vw; bottom: -44vmax; background: radial-gradient(closest-side, rgba(255, 96, 128, .15), transparent); animation: drift-c 35s ease-in-out infinite alternate; }
+    @keyframes drift-a { 50% { transform: translate(24vw, 20vh) scale(1.12); } 100% { transform: translate(42vw, 4vh) scale(.94); } }
+    @keyframes drift-b { 50% { transform: translate(-28vw, 24vh) scale(.88); } 100% { transform: translate(-8vw, 42vh) scale(1.16); } }
+    @keyframes drift-c { 50% { transform: translate(-16vw, -28vh) scale(1.2); } 100% { transform: translate(22vw, -16vh) scale(1); } }
+
+    /* Big headings: a second colour shows through a soft circle that follows the pointer. */
+    .lensed { position: relative; }
+    .lens { position: absolute; inset: 0; padding: inherit; text-align: inherit; pointer-events: none; color: var(--lens, var(--paper));
+      -webkit-mask-image: radial-gradient(circle calc(var(--r, 0) * 1px) at var(--mx, 50%) var(--my, 50%), #000 90%, transparent 100%);
+      mask-image: radial-gradient(circle calc(var(--r, 0) * 1px) at var(--mx, 50%) var(--my, 50%), #000 90%, transparent 100%); }
+    /* Words that rise into place: each word sits in its own clipping box. */
+    .wm { display: inline-block; overflow: hidden; vertical-align: top; padding-bottom: .1em; margin-bottom: -.1em; }
+    .w { display: inline-block; }
+
     /* ---- header ---- */
     header { position: fixed; top: 0; left: 0; right: 0; z-index: 30; display: flex; align-items: center; gap: 14px;
       padding: 16px var(--gutter); background: linear-gradient(var(--ink) 40%, transparent); }
-    .logo { width: 40px; height: 40px; border-radius: 9px; background: var(--mark); color: var(--ink); display: grid; place-items: center;
-      font-variation-settings: "wdth" 62; font-weight: 900; font-size: 30px; line-height: 1; text-decoration: none; flex: none; }
+    .logo { width: 52px; height: 52px; border-radius: 12px; background: var(--mark); color: var(--ink); display: grid; place-items: center;
+      font-variation-settings: "wdth" 62; font-weight: 900; font-size: 40px; line-height: 1; text-decoration: none; flex: none;
+      transition: transform .5s var(--expo); }
+    .logo:hover { transform: rotate(-8deg) scale(1.06); }
     #crumb { flex: 1; min-width: 0; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .nav { display: flex; align-items: center; gap: 6px; }
     .nav button { padding: 10px 12px; border-radius: 8px; }
@@ -46,27 +69,37 @@
 
     /* ---- scrolling stage ---- */
     #scroller { position: relative; z-index: 1; height: 100dvh; overflow-y: auto; overflow-x: clip; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
-    #stage { padding: 84px var(--gutter) 150px; min-height: 100%; }
+    #stage { padding: 96px var(--gutter) 150px; min-height: 100%; }
 
     /* ---- landing ---- */
     .hero-top { display: flex; justify-content: space-between; gap: 16px; color: var(--dim); }
     .wordmark { margin: 6px 0 0; color: var(--mark); font-weight: 900; line-height: .78; white-space: nowrap; text-transform: uppercase;
       letter-spacing: -.012em; font-size: 30vw; overflow: clip; overflow-clip-margin: 0; padding-top: .06em; }
-    .wordmark span { display: inline-block; font-variation-settings: "wdth" var(--w, 62); }
-    .tagline { margin: clamp(10px, 1.6vw, 22px) 0 0; text-align: right; font-size: clamp(20px, 4.1vw, 60px); line-height: 1; }
+    .wordmark { --lens: var(--paper); }
+    .wordmark .ch { display: inline-block; font-variation-settings: "wdth" var(--w, 62); }
+    .tagline { --lens: var(--mark); margin: clamp(10px, 1.6vw, 22px) 0 0; text-align: right; font-size: clamp(20px, 4.1vw, 60px); line-height: 1; }
     .lede { display: grid; grid-template-columns: minmax(0, 34em) auto; justify-content: space-between; align-items: end; gap: 24px; margin-top: clamp(22px, 3.4vw, 46px); }
     .lede p { margin: 0; font-size: clamp(17px, 1.55vw, 21px); line-height: 1.45; }
     .byline { color: var(--paper); text-decoration: underline; text-underline-offset: 4px; white-space: nowrap; }
     .byline:hover { color: var(--mark); }
 
-    .slab { display: flex; align-items: stretch; width: 100%; margin-top: clamp(28px, 4vw, 56px); border-radius: 16px; border: 1px solid var(--dim); color: var(--paper); text-align: left; overflow: hidden; transition: border-color .25s; }
-    .slab:hover { border-color: var(--mark); }
-    .slab .tile { flex: none; width: 76px; margin: 6px; border-radius: 11px; background: var(--mark); color: var(--ink); display: grid; place-items: center; }
-    .slab .label { padding: 18px 20px 18px 14px; display: grid; gap: 4px; align-content: center; }
+    .slab { --tile: 76px; position: relative; isolation: isolate; container-type: inline-size; display: flex; align-items: stretch; width: 100%;
+      margin-top: clamp(28px, 4vw, 56px); border-radius: 16px; border: 1px solid var(--dim); color: var(--paper); text-align: left; overflow: hidden;
+      transition: border-color .4s, color .5s var(--expo); }
+    .slab::after { content: ""; position: absolute; inset: 0; z-index: -1; background: var(--mark); transform: scaleY(0); transform-origin: top; transition: transform .6s var(--expo); }
+    .slab .tile { flex: none; width: var(--tile); margin: 6px; border-radius: 11px; background: var(--mark); color: var(--ink); display: grid; place-items: center;
+      transition: transform .8s var(--expo), background-color .4s, color .4s; }
+    .slab .label { padding: 18px 20px 18px 14px; display: grid; gap: 4px; align-content: center; transition: transform .8s var(--expo); }
     .slab b { font-size: clamp(18px, 2.1vw, 28px); line-height: 1; }
-    .slab small { font-size: 14.5px; line-height: 1.35; color: var(--dim); }
-    .slab:hover .tile svg { transform: translateX(4px); }
-    .slab .tile svg { transition: transform .25s; }
+    .slab small { font-size: 14.5px; line-height: 1.35; color: var(--dim); transition: color .5s; }
+    @media (hover: hover) {
+      .slab:hover { border-color: var(--mark); color: var(--ink); }
+      .slab:hover::after { transform: scaleY(1); transform-origin: bottom; }
+      .slab:hover small { color: rgba(12, 11, 9, .72); }
+      /* The arrow tile travels the whole width; the label slides into the space it leaves. */
+      .slab:hover .tile { transform: translateX(calc(100cqw - 100% - 12px)); background: var(--ink); color: var(--mark); }
+      .slab:hover .label { transform: translateX(calc(-1 * var(--tile) - 6px)); }
+    }
     .note { margin-top: clamp(28px, 4vw, 56px); color: var(--dim); }
 
     .tries { margin-top: clamp(26px, 3.6vw, 48px); border-top: 1px solid var(--line); }
@@ -74,9 +107,13 @@
     .try { display: grid; grid-template-columns: 76px 1fr 28px; gap: 14px; align-items: baseline; width: 100%; padding: 17px 0; border-top: 1px solid var(--line); text-align: left; }
     .try .tag { color: var(--dim); }
     .try .q { font-size: clamp(17px, 1.7vw, 22px); line-height: 1.3; font-weight: 500; }
-    .try .go { justify-self: end; color: var(--dim); transition: transform .25s, color .25s; }
+    .try .go { justify-self: end; display: inline-grid; overflow: hidden; color: var(--dim); transition: color .25s; }
+    .try .go svg { grid-area: 1 / 1; transition: transform .6s var(--expo); }
+    .try .go svg + svg { transform: translateX(-140%); }
     .try:hover .q, .try:hover .tag { color: var(--mark); }
-    .try:hover .go { color: var(--mark); transform: translateX(5px); }
+    .try:hover .go { color: var(--mark); }
+    .try:hover .go svg:first-child { transform: translateX(140%); }
+    .try:hover .go svg + svg { transform: none; }
 
     /* ---- conversation ---- */
     .thread { max-width: var(--measure); margin: 0 auto; }
@@ -130,8 +167,10 @@
     body.memory #stage { padding-bottom: 90px; }
     .nav button[aria-current="page"] { color: var(--mark); }
     .mem-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; }
-    .mem-title { margin: 0; color: var(--mark); font-weight: 900; text-transform: uppercase; line-height: .8; letter-spacing: -.012em;
+    .mem-title { --lens: var(--paper); margin: 0; color: var(--mark); font-weight: 900; text-transform: uppercase; line-height: .8; letter-spacing: -.012em;
       font-variation-settings: "wdth" var(--w, 62); font-size: clamp(56px, 16vw, 220px); }
+    .mem-link { margin: 14px 0 0; color: var(--dim); text-transform: none; letter-spacing: 0; }
+    .mem-link button { color: var(--mark); text-decoration: underline; text-underline-offset: 3px; }
     .mem-count { margin: 0; padding-bottom: 6px; color: var(--dim); text-align: right; }
     .mem-search { display: flex; align-items: center; gap: 14px; margin-top: clamp(22px, 3vw, 40px); border-bottom: 2px solid var(--line); transition: border-color .25s; }
     .mem-search:focus-within { border-color: var(--mark); }
@@ -165,7 +204,8 @@
       .lede { grid-template-columns: 1fr; }
       .try { grid-template-columns: 1fr 22px; }
       .try .tag { grid-column: 1 / -1; }
-      .slab .tile { width: 58px; }
+      .slab { --tile: 58px; }
+      .logo { width: 44px; height: 44px; font-size: 34px; border-radius: 10px; }
       #crumb { display: none; }
       .nav { margin-left: auto; }
       .mem-head { flex-direction: column; align-items: flex-start; }
@@ -173,10 +213,11 @@
       .mem-item { grid-template-columns: 1fr; }
       .mem-item time, .mem-item .t, .mem-item .p, .mem-item .meta { grid-column: 1; grid-row: auto; justify-self: start; text-align: left; padding: 0; }
     }
-    @media (prefers-reduced-motion: reduce) { .cursor::after { animation: none; } * { transition: none !important; } }
+    @media (prefers-reduced-motion: reduce) { .cursor::after, .aurora i { animation: none; } * { transition: none !important; } }
   </style>
 </head>
 <body class="landing">
+  <div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
   <canvas id="field" aria-hidden="true"></canvas>
 
   <header>
@@ -212,10 +253,18 @@
     const REPO = "https://github.com/vaibhav375/minimi-search-agent";
     let conversationId = null, busy = false, thread = null;
 
-    // A random id per browser keeps each visitor's history separate on a shared deployment.
+    // A random id per browser keeps each visitor's history separate on a shared deployment. A history
+    // link (?history=<id>, copied from the Memory tab) switches this browser to that history, so the same
+    // memory can be opened on another device. It is a private link, not a login.
     const visitor = (() => {
-      try { return localStorage.visitor ??= crypto.randomUUID(); } catch { return crypto.randomUUID(); }
+      const shared = new URLSearchParams(location.search).get("history");
+      const valid = shared && /^[\w-]{8,64}$/.test(shared) ? shared : null;
+      try {
+        if (valid) localStorage.visitor = valid;
+        return localStorage.visitor ??= crypto.randomUUID();
+      } catch { return valid ?? crypto.randomUUID(); }
     })();
+    if (location.search.includes("history=")) history.replaceState(null, "", location.pathname + location.hash);
     const api = (path, init = {}) => fetch(path, { ...init, headers: { ...init.headers, "x-visitor": visitor } });
 
     const SAMPLES = [
@@ -233,6 +282,57 @@
     const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
     const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return u; } };
     const stamp = (d) => new Date(d).toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short" }).replace(",", "");
+
+    // ---- text motion helpers ----
+    const hover = matchMedia("(hover: hover)").matches;
+    // "Search with a memory" -> each word in its own clipping box, so it can rise into place.
+    const words = (text) => esc(text).split(/\s+/).map((w) => `<span class="wm"><span class="w">${w}</span></span>`).join(" ");
+
+    // Big headings: a copy of the heading in a second colour, shown only inside a circle that follows
+    // the pointer. The copy shares the original's letters, so intro animations move both together.
+    function addLens(el) {
+      if (calm || !hover || !el || el.querySelector(".lens")) return;
+      const lens = document.createElement("span");
+      lens.className = "lens";
+      lens.setAttribute("aria-hidden", "true");
+      lens.innerHTML = el.innerHTML;
+      el.classList.add("lensed");
+      el.append(lens);
+      const at = (e) => {
+        const r = el.getBoundingClientRect();
+        el.style.setProperty("--mx", `${e.clientX - r.left}px`);
+        el.style.setProperty("--my", `${e.clientY - r.top}px`);
+      };
+      el.addEventListener("pointerenter", (e) => { at(e); gsap.to(el, { "--r": Math.max(70, Math.min(260, el.offsetHeight * .55)), duration: .6, ease: "expo.out" }); });
+      el.addEventListener("pointermove", at);
+      el.addEventListener("pointerleave", () => gsap.to(el, { "--r": 0, duration: .5, ease: "power3.out" }));
+    }
+
+    // Small mono labels resolve out of random characters.
+    const GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/#+";
+    function scramble(el, duration = 650) {
+      if (calm || !el) return;
+      const text = el.dataset.text ??= el.textContent;
+      const start = performance.now();
+      const tick = (now) => {
+        const p = Math.min(1, (now - start) / duration);
+        el.textContent = [...text].map((c, i) => (c === " " || i < p * text.length ? c : GLYPHS[(Math.random() * GLYPHS.length) | 0])).join("");
+        if (p < 1) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }
+
+    // Rows slide in as they scroll into view.
+    function revealOnScroll(els) {
+      if (calm || !els.length) return;
+      gsap.set(els, { opacity: 0, y: 26 });
+      const io = new IntersectionObserver((entries) => {
+        const shown = entries.filter((e) => e.isIntersecting).map((e) => e.target);
+        shown.forEach((el) => io.unobserve(el));
+        if (shown.length) gsap.to(shown, { opacity: 1, y: 0, duration: .8, ease: "expo.out", stagger: .07 });
+      }, { root: scroller, rootMargin: "0px 0px -8% 0px" });
+      els.forEach((el) => io.observe(el));
+    }
 
     // ---- smooth scrolling (Lenis) on the one scrolling surface ----
     const lenis = calm ? null : new Lenis({ wrapper: scroller, content: stage, autoRaf: true, lerp: 0.11 });
@@ -307,9 +407,9 @@
       const el = document.createElement("section");
       el.className = "turn";
       el.innerHTML = `<h2 class="ask"></h2><div class="steps mono"></div><div class="answer"></div>`;
-      el.querySelector(".ask").textContent = question;
+      el.querySelector(".ask").innerHTML = animate && !calm ? words(question) : esc(question);
       thread.append(el);
-      if (animate && !calm) gsap.from(el, { y: 22, opacity: 0, duration: .55, ease: "power3.out" });
+      if (animate && !calm) gsap.from(el.querySelectorAll(".ask .w"), { yPercent: 110, duration: .7, ease: "expo.out", stagger: .025 });
       return { el, steps: el.querySelector(".steps"), answer: el.querySelector(".answer") };
     }
 
@@ -336,22 +436,28 @@
       const today = new Date().toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric" }).replace(",", "");
       stage.innerHTML = `
         <div class="hero-top mono"><span>Web search agent</span><span>${today}</span></div>
-        <h1 class="wordmark" aria-label="Recall">${[..."Recall"].map((c) => `<span aria-hidden="true">${c}</span>`).join("")}</h1>
-        <p class="tagline wide">Search with a memory</p>
+        <h1 class="wordmark" aria-label="Recall">${[..."Recall"].map((c) => `<span class="ch" aria-hidden="true">${c}</span>`).join("")}</h1>
+        <p class="tagline wide">${words("Search with a memory")}</p>
         <div class="lede">
-          <p>Ask anything and get an answer from the live web, with its sources. Ask again next week and it checks what changed, because it keeps what you asked and when.</p>
+          <p>${words("Ask anything and get an answer from the live web, with its sources. Ask again next week and it checks what changed, because it keeps what you asked and when.")}</p>
           <a class="byline mono" href="${REPO}" target="_blank" rel="noopener noreferrer">Built by vaibhav375 · source on GitHub</a>
         </div>
         <div id="demo"></div>
-        <section class="tries"><h2 class="mono">Try one</h2>${SAMPLES.map(([tag, q], i) => `<button class="try" type="button" data-i="${i}"><span class="tag mono">${tag}</span><span class="q">${esc(q)}</span><span class="go">${ARROW}</span></button>`).join("")}</section>`;
+        <section class="tries"><h2 class="mono">Try one</h2>${SAMPLES.map(([tag, q], i) => `<button class="try" type="button" data-i="${i}"><span class="tag mono">${tag}</span><span class="q">${esc(q)}</span><span class="go">${ARROW}${ARROW}</span></button>`).join("")}</section>`;
       stage.querySelectorAll(".try").forEach((b) => (b.onclick = () => { input.value = SAMPLES[b.dataset.i][1]; ask(); }));
       fitWordmark();
+      addLens(stage.querySelector(".wordmark"));
+      addLens(stage.querySelector(".tagline"));
       toTop();
       checkHistory();
       if (!calm) {
         // The wordmark arrives wide and squeezes down to fit: the width axis is the whole identity.
-        gsap.fromTo(".wordmark span", { "--w": 125, yPercent: 30, opacity: 0 }, { "--w": 62, yPercent: 0, opacity: 1, duration: 1.15, ease: "expo.out", stagger: .05 });
-        gsap.from(".tagline, .lede, #demo, .tries", { y: 26, opacity: 0, duration: .8, ease: "power3.out", stagger: .08, delay: .35 });
+        gsap.fromTo(".wordmark .ch", { "--w": 125, yPercent: 30, opacity: 0 }, { "--w": 62, yPercent: 0, opacity: 1, duration: 1.15, ease: "expo.out", stagger: .05 });
+        gsap.from(".tagline .w", { yPercent: 110, duration: .9, ease: "expo.out", stagger: .08, delay: .35 });
+        gsap.from(".lede .w", { yPercent: 110, duration: .8, ease: "expo.out", stagger: .012, delay: .5 });
+        gsap.from(".byline, #demo", { y: 22, opacity: 0, duration: .8, ease: "expo.out", stagger: .1, delay: .7 });
+        stage.querySelectorAll(".hero-top span, .tries h2").forEach((el) => scramble(el, 900));
+        revealOnScroll([...stage.querySelectorAll(".try")]);
       }
     }
 
@@ -361,6 +467,7 @@
       if (!el) return;
       // Measured on a hidden copy at the final (condensed) width, so the intro animation cannot skew it.
       const probe = document.createElement("span");
+      probe.className = "ch";
       probe.textContent = "Recall";
       probe.style.cssText = "position:absolute;visibility:hidden;font-size:200px;--w:62";
       el.append(probe);
@@ -509,6 +616,7 @@
       $("crumb").textContent = "";
       stage.innerHTML = `
         <div class="mem-head"><h1 class="mem-title">Memory</h1><p class="mem-count mono" id="memCount"></p></div>
+        <p class="mem-link mono">This history belongs to this browser. <button type="button" id="copyLink">Copy a link to open it on another device</button></p>
         <label class="mem-search">${SEARCH_ICON}<input id="memQ" type="search" autocomplete="off" spellcheck="false" placeholder='Search words or dates, like "last Tuesday postgres"' aria-label="Search your conversations" /></label>
         <div class="chips mono" role="group" aria-label="Filter by date">
           ${PRESETS.map(([key, label]) => `<button class="chip" type="button" data-p="${key}">${label}</button>`).join("")}
@@ -522,8 +630,18 @@
       q.oninput = () => { clearTimeout(timer); timer = setTimeout(() => { mem.q = q.value; loadMemory(); }, 160); };
       stage.querySelectorAll("[data-p]").forEach((b) => (b.onclick = () => { mem.preset = b.dataset.p; mem.day = ""; dayInput.value = ""; loadMemory(); }));
       dayInput.onchange = () => { mem.day = dayInput.value; loadMemory(); };
+      $("copyLink").onclick = async () => {
+        const link = `${location.origin}/?history=${encodeURIComponent(visitor)}`;
+        try {
+          await navigator.clipboard.writeText(link);
+          $("copyLink").textContent = "Link copied. Anyone with it can see this history.";
+        } catch {
+          prompt("Copy this link to open your history on another device:", link);
+        }
+      };
       toTop();
       loadMemory(true);
+      addLens(stage.querySelector(".mem-title"));
       if (!calm) gsap.fromTo(".mem-title", { "--w": 125, opacity: 0 }, { "--w": 62, opacity: 1, duration: 1, ease: "expo.out" });
       if (matchMedia("(pointer: fine)").matches) q.focus();
     }
@@ -589,6 +707,8 @@
     }
     addEventListener("hashchange", () => { if (!busy) route(); });
     $("memoryTab").onclick = () => { if (busy) return; if (location.hash === "#memory") showMemory(); else location.hash = "memory"; };
+
+    document.querySelectorAll(".nav button").forEach((b) => b.addEventListener("pointerenter", () => scramble(b, 400)));
 
     $("form").onsubmit = (e) => { e.preventDefault(); ask(); };
     input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); ask(); } });
