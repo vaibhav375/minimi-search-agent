@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Store } from "../src/store.ts";
-import { recall, resolveDates, isRecall, keywords, welcome } from "../src/recall.ts";
+import { recall, resolveDates, isRecall, keywords } from "../src/recall.ts";
 
 // Thursday 12 November 2026, 14:00 in London.
 const NOW = new Date("2026-11-12T14:00:00Z");
@@ -155,29 +155,4 @@ test("every write is mirrored with its id, and a fresh store restores from the c
   assert.match(recall(b, "Last Tuesday I asked you about Postgres hosting", NOW, TZ)!.block, /Postgres/);
   // New rows continue after the restored ids.
   assert.ok(b.createConversation("next", NOW) > Math.max(...a.listConversations().map((c) => c.id)));
-});
-
-test("welcome: new visitors get nothing to recall, returning ones get follow-ups recall can resolve", () => {
-  assert.deepEqual(welcome(new Store(":memory:"), NOW, TZ), { returning: false, followUps: [] });
-  const s = new Store(":memory:");
-  const add = (q: string, at: string) => {
-    const c = s.createConversation(q.slice(0, 60), new Date(at));
-    s.addMessage({ conversationId: c, role: "user", content: q, at: new Date(at), timezone: TZ });
-    s.addMessage({ conversationId: c, role: "assistant", content: "answer", at: new Date(at), timezone: TZ });
-  };
-  add("Which Postgres hosting should I use? Compare their pricing.", "2026-11-10T10:00:00Z");
-  add("Last Tuesday I asked you about Postgres. Has the pricing changed?", "2026-11-11T09:00:00Z"); // a recall question: no follow-up
-  add("What is the price of gold today?", "2026-11-12T09:00:00Z"); // today: nothing has changed yet
-  const w = welcome(s, NOW, TZ);
-  assert.equal(w.returning, true);
-  assert.deepEqual(w.last, { question: "What is the price of gold today?", when: "earlier today" });
-  assert.equal(w.followUps.length, 1);
-  assert.equal(w.followUps[0]!.day, "Tue 10 Nov");
-  const q = w.followUps[0]!.question;
-  assert.ok(isRecall(q));
-  assert.deepEqual(dates(q), ["2026-11-10"]);
-  assert.match(recall(s, q, NOW, TZ)!.block, /Which Postgres hosting/);
-  // after asking a follow-up, the greeting still names the last real topic, not the follow-up
-  add(q, "2026-11-12T13:00:00Z");
-  assert.equal(welcome(s, NOW, TZ).last?.question, "What is the price of gold today?");
 });

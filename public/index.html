@@ -102,15 +102,6 @@
     }
     .note { margin-top: clamp(28px, 4vw, 56px); color: var(--dim); }
 
-    .hello { margin-top: clamp(22px, 3vw, 40px); display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 22px; }
-    .hello p { margin: 0; font-size: clamp(20px, 2.2vw, 30px); font-weight: 600; line-height: 1.25; }
-    .hello .name-btn { color: var(--dim); text-decoration: underline; text-underline-offset: 4px; }
-    .hello .name-btn:hover { color: var(--mark); }
-    .hello form { display: flex; gap: 8px; }
-    .hello input { width: 14em; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--paper); text-transform: none; }
-    .hello input:focus { outline: none; border-color: var(--mark); }
-    .hello form button { padding: 8px 14px; border-radius: 8px; background: var(--mark); color: var(--ink); }
-    .try.mine .tag { color: var(--mark); }
     .tries { margin-top: clamp(26px, 3.6vw, 48px); border-top: 1px solid var(--line); }
     .tries h2 { margin: 0; padding: 14px 0; color: var(--dim); font-weight: 400; }
     .try { display: grid; grid-template-columns: 76px 1fr 28px; gap: 14px; align-items: baseline; width: 100%; padding: 17px 0; border-top: 1px solid var(--line); text-align: left; }
@@ -280,27 +271,16 @@
     if (location.search.includes("history=")) history.replaceState(null, "", location.pathname + location.hash);
     const api = (path, init = {}) => fetch(path, { ...init, headers: { ...init.headers, "x-visitor": visitor } });
 
-    // First visit: everyday questions across topics. Coming back: the visitor's own follow-ups
-    // (from /api/welcome) and a different set, so the page is not the same twice.
-    const SAMPLES_NEW = [
-      ["Home", "How much does an IKEA Kallax shelf unit cost right now?"],
-      ["Flights", "What do London to Lisbon return flights typically cost next month, and when is it cheapest to book?"],
+    const SAMPLES = [
       ["Finance", "What did the US Federal Reserve decide at its most recent meeting, and how did markets react?"],
-      ["Sport", "Who won the most recent Formula 1 race, and how does the championship stand?"],
-      ["Cars", "Is a used Tesla Model 3 cheaper now than it was a year ago?"],
-      ["Gadgets", "Compare the newest iPhone and Pixel flagships on price and battery life."],
-      ["Film", "What are the highest-grossing films of the year so far?"],
       ["Tech", "What's new in the latest Node.js release?"],
-    ];
-    const SAMPLES_BACK = [
-      ["Energy", "What is the UK energy price cap right now, and when does it change next?"],
-      ["Travel", "What do UK citizens need to visit Japan right now: visa, passport rules, entry forms?"],
       ["Art", "Which major art exhibitions are opening in London and New York this month?"],
       ["Science", "What has NASA announced about its Artemis missions recently?"],
-      ["Food", "Have supermarket food prices in the UK gone up or down this month?"],
+      ["Sport", "Who won the most recent Formula 1 race, and how does the championship stand?"],
+      ["Travel", "What do UK citizens need to visit Japan right now: visa, passport rules, entry forms?"],
+      ["Film", "What are the highest-grossing films of the year so far?"],
+      ["Gadgets", "Compare the newest iPhone and Pixel flagships on price and battery life."],
     ];
-    // An optional first name, kept in this browser only: it never goes to the server.
-    let NAME = (() => { try { return localStorage.recallName ?? ""; } catch { return ""; } })();
     const ARROW = `<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="square"><path d="M3 11h15M12.5 5l6 6-6 6"/></svg>`;
     
     const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -466,21 +446,22 @@
           <p>${words("Ask anything and get an answer from the live web, with its sources. Ask again next week and it checks what changed, because it keeps what you asked and when.")}</p>
           <a class="byline mono" href="${REPO}" target="_blank" rel="noopener noreferrer">Built by vaibhav375 · source on GitHub</a>
         </div>
-        <div class="hello" id="hello"></div>
         <div id="demo"></div>
-        <div id="tries"></div>`;
+        <section class="tries"><h2 class="mono">Try one</h2>${SAMPLES.map(([tag, q], i) => `<button class="try" type="button" data-i="${i}"><span class="tag mono">${tag}</span><span class="q">${esc(q)}</span><span class="go">${ARROW}${ARROW}</span></button>`).join("")}</section>`;
+      stage.querySelectorAll(".try").forEach((b) => (b.onclick = () => { input.value = SAMPLES[b.dataset.i][1]; ask(); }));
       fitWordmark();
       addLens(stage.querySelector(".wordmark"));
       addLens(stage.querySelector(".tagline"));
       toTop();
-      loadWelcome();
+      checkHistory();
       if (!calm) {
         // The wordmark arrives wide and squeezes down to fit: the width axis is the whole identity.
         gsap.fromTo(".wordmark .ch", { "--w": 125, yPercent: 30, opacity: 0 }, { "--w": 62, yPercent: 0, opacity: 1, duration: 1.15, ease: "expo.out", stagger: .05 });
         gsap.from(".tagline .w", { yPercent: 110, duration: .9, ease: "expo.out", stagger: .08, delay: .35 });
         gsap.from(".lede .w", { yPercent: 110, duration: .8, ease: "expo.out", stagger: .012, delay: .5 });
         gsap.from(".byline, #demo", { y: 22, opacity: 0, duration: .8, ease: "expo.out", stagger: .1, delay: .7 });
-        stage.querySelectorAll(".hero-top span").forEach((el) => scramble(el, 900));
+        stage.querySelectorAll(".hero-top span, .tries h2").forEach((el) => scramble(el, 900));
+        revealOnScroll([...stage.querySelectorAll(".try")]);
       }
     }
 
@@ -521,53 +502,10 @@
       };
     }
 
-    // Welcome or welcome back, and the suggestions that go with it. If the call fails, the page
-    // simply treats the visitor as new.
-    async function loadWelcome() {
-      let w = { returning: false, followUps: [] };
-      try { const res = await api(`/api/welcome?tz=${encodeURIComponent(tz)}`); if (res.ok) w = await res.json(); } catch {}
-      if (!$("hello")) return; // the visitor already left the landing page
-      renderHello(w);
-      renderTries(w);
-      historySlab(w.returning);
-      if (!calm) gsap.from("#hello", { y: 18, opacity: 0, duration: .8, ease: "expo.out" });
-    }
-
-    function renderHello(w) {
-      const hello = $("hello");
-      const who = NAME ? `, ${esc(NAME)}` : "";
-      const line = w.returning
-        ? `Welcome back${who}.${w.last ? ` ${esc(w.last.when[0].toUpperCase() + w.last.when.slice(1))} you asked “${esc(w.last.question)}”` : ""}`
-        : `Welcome${who}. Ask anything, and I'll remember what you asked and when.`;
-      hello.innerHTML = `<p>${line}</p><button class="name-btn mono" type="button">${NAME ? "Not you? Change name" : "What should I call you?"}</button>`;
-      hello.querySelector(".name-btn").onclick = () => {
-        hello.querySelector(".name-btn").outerHTML = `<form><input class="mono" maxlength="40" autocomplete="given-name" placeholder="Your name" aria-label="Your name" value="${esc(NAME)}"><button class="mono" type="submit">Save</button></form>`;
-        const form = hello.querySelector("form"), field = form.querySelector("input");
-        field.focus();
-        form.onsubmit = (e) => {
-          e.preventDefault();
-          NAME = field.value.trim().slice(0, 40);
-          try { if (NAME) localStorage.recallName = NAME; else localStorage.removeItem("recallName"); } catch {}
-          renderHello(w);
-        };
-      };
-    }
-
-    function renderTries(w) {
-      const box = $("tries");
-      // rows: [tag, what the row says, what gets asked]
-      const mine = w.followUps.map((f) => [f.day.replace(/^\S+ /, ""), `Has anything changed since you asked “${f.title}”?`, f.question]);
-      const general = (w.returning ? SAMPLES_BACK : SAMPLES_NEW).map(([tag, q]) => [tag, q, q]);
-      const rows = [...mine, ...general];
-      const row = ([tag, label], i) => `<button class="try${i < mine.length ? " mine" : ""}" type="button" data-i="${i}"><span class="tag mono">${esc(tag)}</span><span class="q">${esc(label)}</span><span class="go">${ARROW}${ARROW}</span></button>`;
-      box.innerHTML =
-        (mine.length ? `<section class="tries"><h2 class="mono">From your memory</h2>${mine.map(row).join("")}</section>` : "") +
-        `<section class="tries"><h2 class="mono">${w.returning ? "Or try something new" : "Try one"}</h2>${general.map((r, j) => row(r, j + mine.length)).join("")}</section>`;
-      box.querySelectorAll(".try").forEach((b) => (b.onclick = () => { input.value = rows[b.dataset.i][2]; ask(); }));
-      if (!calm) {
-        box.querySelectorAll(".tries h2").forEach((el) => scramble(el, 900));
-        revealOnScroll([...box.querySelectorAll(".try")]);
-      }
+    async function checkHistory() {
+      let items = [];
+      try { items = await (await api("/api/conversations")).json(); } catch {}
+      historySlab(items.length > 0);
     }
 
     async function openConversation(id) {
